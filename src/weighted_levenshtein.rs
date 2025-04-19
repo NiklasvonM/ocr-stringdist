@@ -1,4 +1,3 @@
-use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 
@@ -14,15 +13,18 @@ pub struct OcrCostMap {
 impl OcrCostMap {
     /// Creates a new OcrCostMap with specified costs.
     /// Ensures symmetry by adding both (a, b) and (b, a) if only one is provided.
+    /// If symmetric, keys are inserted in both directions.
     pub fn new(
         custom_costs_input: HashMap<(char, char), f64>,
         default_substitution_cost: f64,
+        symmetric: bool,
     ) -> Self {
         let mut costs = HashMap::with_capacity(custom_costs_input.len() * 2); // Pre-allocate
         for ((c1, c2), cost) in custom_costs_input {
-            // Ensure symmetry and avoid overwriting if both orders are present
             costs.entry((c1, c2)).or_insert(cost);
-            costs.entry((c2, c1)).or_insert(cost);
+            if symmetric {
+                costs.entry((c2, c1)).or_insert(cost);
+            }
         }
 
         OcrCostMap {
@@ -32,7 +34,7 @@ impl OcrCostMap {
     }
 
     /// Gets the substitution cost between two characters.
-    /// Checks the custom map (symmetrically) first, then falls back to the
+    /// Checks the custom map first, then falls back to the
     /// default substitution cost configured within this map instance.
     pub fn get_substitution_cost(&self, c1: char, c2: char) -> f64 {
         if c1 == c2 {
@@ -48,35 +50,6 @@ impl OcrCostMap {
     }
 }
 
-impl Default for OcrCostMap {
-    fn default() -> Self {
-        DEFAULT_OCR_COST_MAP.clone()
-    }
-}
-
-// --- Default OCR Map Initialization (Immutable HashMap) ---
-
-// Define the costs as a static array of tuples
-const DEFAULT_OCR_PAIRS: &[((char, char), f64)] = &[
-    (('G', '6'), 0.2),
-    (('O', '0'), 0.2),
-    (('o', '0'), 0.2),
-    (('l', '1'), 0.2),
-    (('I', '1'), 0.2),
-    (('2', 'Z'), 0.2),
-    (('B', '8'), 0.2),
-    (('S', '5'), 0.3),
-    (('s', '5'), 0.3),
-    (('E', 'F'), 0.8),
-];
-
-// Use Lazy and collect from the static array for initialization
-static DEFAULT_OCR_COST_MAP: Lazy<OcrCostMap> = Lazy::new(|| {
-    // Collect the static array into a HashMap directly
-    let ocr_costs: HashMap<(char, char), f64> = DEFAULT_OCR_PAIRS.iter().copied().collect();
-    OcrCostMap::new(ocr_costs, 1.0)
-});
-
 // Helper to create a range vector with f64 values
 fn range_vec_f64(size: usize) -> SmallVec<[f64; 16]> {
     let mut vec = SmallVec::with_capacity(size);
@@ -84,11 +57,6 @@ fn range_vec_f64(size: usize) -> SmallVec<[f64; 16]> {
         vec.push(i as f64);
     }
     vec
-}
-
-/// Calculates Levenshtein distance between two vectors using custom costs.
-pub fn vec_custom_levenshtein_distance(v1: &[char], v2: &[char]) -> f64 {
-    vec_custom_levenshtein_distance_with_cost_map(v1, v2, &OcrCostMap::default())
 }
 
 /// Calculates Levenshtein distance between two vectors using a specified cost map.
@@ -131,18 +99,6 @@ pub fn vec_custom_levenshtein_distance_with_cost_map(
     cur[cols - 1]
 }
 
-/// Calculates custom Levenshtein distance between two strings using OCR cost map.
-pub fn custom_levenshtein_distance(s1: &str, s2: &str) -> f64 {
-    if s1 == s2 {
-        return 0.0;
-    }
-
-    let v1: Vec<char> = s1.chars().collect();
-    let v2: Vec<char> = s2.chars().collect();
-
-    vec_custom_levenshtein_distance(&v1, &v2)
-}
-
 /// Calculates custom Levenshtein distance between two strings using a provided cost map.
 pub fn custom_levenshtein_distance_with_cost_map(s1: &str, s2: &str, cost_map: &OcrCostMap) -> f64 {
     if s1 == s2 {
@@ -170,30 +126,10 @@ mod test {
     }
 
     #[test]
-    fn test_custom_levenshtein_simple() {
-        assert_approx_eq(custom_levenshtein_distance("abc", "axc"), 1.0, 1e-9);
-        assert_approx_eq(custom_levenshtein_distance("abc", "ac"), 1.0, 1e-9);
-        assert_approx_eq(custom_levenshtein_distance("ac", "abc"), 1.0, 1e-9);
-    }
-
-    #[test]
-    fn test_custom_levenshtein_ocr_pairs() {
-        assert_approx_eq(custom_levenshtein_distance("ABCDEFG", "ABCDEF6"), 0.2, 1e-9);
-
-        assert_approx_eq(custom_levenshtein_distance("ABCDEF6", "ABCDEFG"), 0.2, 1e-9);
-
-        assert_approx_eq(
-            custom_levenshtein_distance("ABCDEFG", "ABCDEF6X"),
-            0.2 + 1.0,
-            1e-9,
-        );
-    }
-
-    #[test]
     fn test_custom_levenshtein_with_custom_map() {
         let mut custom_costs = HashMap::new();
         custom_costs.insert(('a', 'b'), 0.1);
-        let cost_map = OcrCostMap::new(custom_costs, 1.0);
+        let cost_map = OcrCostMap::new(custom_costs, 1.0, true);
 
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_map("abc", "bbc", &cost_map),
