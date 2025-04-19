@@ -22,8 +22,11 @@ pip install ocr-stringdist
 - **Weighted Levenshtein Distance**: An adaptation of the classic Levenshtein algorithm with custom substitution costs for character pairs that are commonly confused in OCR models.
 - **Pre-defined OCR Distance Map**: A built-in distance map for common OCR confusions (e.g., "0" vs "O", "1" vs "l", "5" vs "S").
 - **Customizable Cost Maps**: Create your own substitution cost maps for specific OCR systems or domains.
+- **Best Match Finder**: Utility function find_best_candidate to efficiently find the best matching string from a collection of candidates using any specified distance function (including the library's OCR-aware ones). Supports early stopping for performance optimization.
 
 ## Usage
+
+### Weighted Levenshtein Distance
 
 ```python
 import ocr_stringdist as osd
@@ -41,6 +44,22 @@ distance = osd.weighted_levenshtein_distance(
     default_cost=1.0
 )
 print(f"Distance with custom map: {distance}")
+```
+
+### Finding the Best Candidate
+
+```python
+import ocr_stringdist as osd
+
+s = "apple"
+candidates = ["apply", "apples", "orange", "appIe"]  # 'appIe' has an OCR-like error
+
+def ocr_aware_distance(s1: str, s2: str) -> float:
+    return osd.weighted_levenshtein_distance(s1, s2, cost_map={("l", "I"): 0.1})
+
+best_candidate, best_dist = osd.find_best_candidate(s, candidates, ocr_aware_distance)
+print(f"Best candidate for '{s}' is '{best_candidate}' with distance {best_dist}")
+# Output: Best candidate for 'apple' is 'appIe' with distance 0.1
 ```
 
 ## Acknowledgements
