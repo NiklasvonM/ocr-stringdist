@@ -58,7 +58,7 @@ def find_best_candidate(
         def is_next_best(current: float, best: float) -> bool:
             return current < best
 
-        def can_return_early(current: bool, threshold: float) -> bool:
+        def can_return_early(current: float, threshold: float) -> bool:
             return current <= threshold
     else:
         best_distance = -float("inf")
@@ -66,7 +66,7 @@ def find_best_candidate(
         def is_next_best(current: float, best: float) -> bool:
             return current > best
 
-        def can_return_early(current: bool, threshold: float) -> bool:
+        def can_return_early(current: float, threshold: float) -> bool:
             return current >= threshold
 
     for candidate in candidates:

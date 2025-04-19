@@ -15,7 +15,6 @@ _build/
 wheelhouse/
 site/
 target/
-Cargo.lock
 .venv
 .vscode
 

@@ -8,7 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.9"
 classifiers = [
   "Programming Language :: Rust",
-  "Programming Language :: Python :: Implementation :: PyPy",
+  "Programming Language :: Python",
   "Operating System :: OS Independent",
 ]
 
@@ -20,3 +20,13 @@ repository = "https://github.com/NiklasvonM/ocr-stringdist"
 features = ["pyo3/extension-module", "python"]
 python-source = "python"
 module-name = "ocr_stringdist._rust_stringdist"
+
+[dependency-groups]
+dev = [
+    "icecream>=2.1.4",
+    "maturin>=1.8.3",
+    "mypy>=1.15.0",
+    "pytest>=8.3.5",
+    "ruff>=0.11.6",
+    "wheel>=0.45.1",
+]

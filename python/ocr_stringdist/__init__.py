@@ -36,6 +36,6 @@ def weighted_levenshtein_distance(
     """
     if cost_map is None:
         cost_map = ocr_distance_map
-    return _weighted_levenshtein_distance(  # noqa: F405
+    return _weighted_levenshtein_distance(  # type: ignore  # noqa: F405
         s1, s2, cost_map=cost_map, symmetric=symmetric, default_cost=default_cost
     )
