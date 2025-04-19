@@ -1,3 +1,5 @@
+from typing import Optional
+
 from ._rust_stringdist import *  # noqa: F403
 
 from .default_ocr_distances import ocr_distance_map
@@ -13,7 +15,7 @@ def weighted_levenshtein_distance(
     s1: str,
     s2: str,
     /,
-    cost_map: dict[tuple[str, str], float] | None = None,
+    cost_map: Optional[dict[tuple[str, str], float]] = None,
     *,
     symmetric: bool = True,
     default_cost: float = 1.0,
