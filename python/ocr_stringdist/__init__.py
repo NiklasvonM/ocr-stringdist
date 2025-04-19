@@ -1,13 +1,13 @@
 from typing import Optional
 
 from ._rust_stringdist import *  # noqa: F403
-
 from .default_ocr_distances import ocr_distance_map
-
+from .matching import find_best_candidate
 
 __all__ = [
     "ocr_distance_map",
     "weighted_levenshtein_distance",  # noqa: F405
+    "find_best_candidate",
 ]
 
 

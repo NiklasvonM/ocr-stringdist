@@ -1,5 +1,5 @@
-from ocr_stringdist import weighted_levenshtein_distance
 from icecream import ic
+from ocr_stringdist import find_best_candidate, weighted_levenshtein_distance
 
 ic(
     weighted_levenshtein_distance(
@@ -39,3 +39,12 @@ ic(weighted_levenshtein_distance("A", "B", {("A", "B"): 0.0}, symmetric=False))
 ic(weighted_levenshtein_distance("A", "B", {("B", "A"): 0.0}, symmetric=False))
 ic(weighted_levenshtein_distance("B", "A", {("B", "A"): 0.0}, symmetric=False))
 ic(weighted_levenshtein_distance("B", "A", {("A", "B"): 0.0}, symmetric=False))
+
+
+ic(
+    find_best_candidate(
+        "apple",
+        ["apply", "apples", "orange", "appIe"],
+        lambda s1, s2: weighted_levenshtein_distance(s1, s2, {("l", "I"): 0.1}),
+    )
+)
