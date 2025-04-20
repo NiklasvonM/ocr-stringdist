@@ -21,7 +21,7 @@ author = "Niklas von Moers"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = [
+extensions: list[str] = [
     "sphinx.ext.autodoc",  # Core library to pull documentation from docstrings
     "sphinx.ext.napoleon",  # Support for Google and NumPy style docstrings
     "sphinx.ext.intersphinx",  # Link to other projects' documentation
@@ -30,11 +30,11 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns: list[str] = []
 
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
+html_static_path: list[str] = ["_static"]

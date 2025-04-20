@@ -15,24 +15,19 @@ fn _weighted_levenshtein_distance(
     default_cost: Option<f64>,
 ) -> PyResult<f64> {
     let default_cost_value = default_cost.unwrap_or(1.0);
-    let mut char_costs: HashMap<(char, char), f64> = HashMap::new();
+    let mut substitution_costs: HashMap<(String, String), f64> = HashMap::new();
 
     // Convert Python dictionary to Rust HashMap
     for (key, value) in cost_map.iter() {
         if let Ok(key_tuple) = key.extract::<(String, String)>() {
             if let Ok(cost) = value.extract::<f64>() {
-                // Extract the first character from each string, if they exist
-                if let (Some(c1), Some(c2)) =
-                    (key_tuple.0.chars().next(), key_tuple.1.chars().next())
-                {
-                    char_costs.insert((c1, c2), cost);
-                }
+                substitution_costs.insert((key_tuple.0, key_tuple.1), cost);
             }
         }
     }
 
     // Create a custom cost map and calculate the distance
-    let custom_cost_map = OcrCostMap::new(char_costs, default_cost_value, symmetric);
+    let custom_cost_map = OcrCostMap::new(substitution_costs, default_cost_value, symmetric);
     Ok(_weighted_lev_with_map(a, b, &custom_cost_map))
 }
 

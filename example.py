@@ -17,6 +17,15 @@ ic(
     )
 )
 
+# Substitution of multiple characters at once is supported.
+ic(
+    weighted_levenshtein_distance(
+        "이탈리",
+        "OI탈리",  # Korean syllables may be confused with multiple Latin letters at once
+        {("이", "OI"): 0.5},
+    ),
+)
+
 ic(
     weighted_levenshtein_distance(
         "ABCDE",
@@ -26,20 +35,8 @@ ic(
     )
 )
 
-ic(
-    weighted_levenshtein_distance(
-        "RO8ERT",
-        "R0BERT",
-        {("O", "0"): 0.1, ("B", "8"): 0.2},
-    )
-)
-
-
 ic(weighted_levenshtein_distance("A", "B", {("A", "B"): 0.0}, symmetric=False))
 ic(weighted_levenshtein_distance("A", "B", {("B", "A"): 0.0}, symmetric=False))
-ic(weighted_levenshtein_distance("B", "A", {("B", "A"): 0.0}, symmetric=False))
-ic(weighted_levenshtein_distance("B", "A", {("A", "B"): 0.0}, symmetric=False))
-
 
 ic(
     find_best_candidate(

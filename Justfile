@@ -4,7 +4,7 @@ venv:
     uv sync
 
 pytest:
-    maturin develop
+    uv run maturin develop
     uv run pytest
 
 test:

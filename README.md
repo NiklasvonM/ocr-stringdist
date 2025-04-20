@@ -22,9 +22,11 @@ pip install ocr-stringdist
 ## Features
 
 - **Weighted Levenshtein Distance**: An adaptation of the classic Levenshtein algorithm with custom substitution costs for character pairs that are commonly confused in OCR models.
+- **Unicode Support**: Arbitrary unicode strings can be compared.
+- **Substitution of Multiple Characters**: Not just character pairs, but string pairs may be substituted, for example the Korean syllable "이" for the two letters "OI".
 - **Pre-defined OCR Distance Map**: A built-in distance map for common OCR confusions (e.g., "0" vs "O", "1" vs "l", "5" vs "S").
 - **Customizable Cost Maps**: Create your own substitution cost maps for specific OCR systems or domains.
-- **Best Match Finder**: Utility function find_best_candidate to efficiently find the best matching string from a collection of candidates using any specified distance function (including the library's OCR-aware ones). Supports early stopping for performance optimization.
+- **Best Match Finder**: Utility function `find_best_candidate` to efficiently find the best matching string from a collection of candidates using any specified distance function (including the library's OCR-aware ones).
 
 ## Usage
 
@@ -38,12 +40,12 @@ distance = osd.weighted_levenshtein_distance("OCR5", "OCRS")
 print(f"Distance between 'OCR5' and 'OCRS': {distance}")  # Will be less than 1.0
 
 # Custom cost map
-custom_map = {("f", "t"): 0.2, ("m", "n"): 0.1}
+custom_map = {("In", "h"): 0.5}
 distance = osd.weighted_levenshtein_distance(
-    "first", "tirst",
+    "hi", "Ini",
     cost_map=custom_map,
     symmetric=True,
-    default_cost=1.0
+    default_cost=1.0,
 )
 print(f"Distance with custom map: {distance}")
 ```
