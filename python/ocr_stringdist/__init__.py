@@ -36,6 +36,7 @@ def weighted_levenshtein_distance(
     """
     if cost_map is None:
         cost_map = ocr_distance_map
+    # _weighted_levenshtein_distance is written in Rust, see src/rust_stringdist.rs.
     return _weighted_levenshtein_distance(  # type: ignore  # noqa: F405
         s1, s2, cost_map=cost_map, symmetric=symmetric, default_cost=default_cost
     )
