@@ -2,6 +2,8 @@
 
 A Python library for string distance calculations that account for common OCR (optical character recognition) errors.
 
+Documentation: https://niklasvonm.github.io/ocr-stringdist/
+
 [![PyPI](https://img.shields.io/badge/PyPI-Package-blue)](https://pypi.org/project/ocr-stringdist/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
