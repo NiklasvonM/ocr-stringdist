@@ -46,6 +46,11 @@ impl OcrCostMap {
                 .unwrap_or(self.default_substitution_cost) // Fallback to configured default
         }
     }
+
+    /// Checks if the cost map contains a specific substitution
+    pub fn has_substitution(&self, s1: &str, s2: &str) -> bool {
+        self.costs.contains_key(&(s1.to_string(), s2.to_string()))
+    }
 }
 
 /// Calculates custom Levenshtein distance between two strings using a provided cost map.
@@ -80,69 +85,72 @@ pub fn custom_levenshtein_distance_with_cost_map(s1: &str, s2: &str, cost_map: &
         dp[0][j] = j as f64;
     }
 
-    // Check for multi-character substitutions
-    // We'll check various lengths of substrings up to a reasonable limit
-    let max_substr_len = 5; // Limit to avoid excessive computation
+    // Limit on substring lengths to check
+    let max_substr_len = 5.min(len1.max(len2));
 
     // Fill the dp matrix
     for i in 1..=len1 {
         for j in 1..=len2 {
-            // Check for regular single character operations
+            // Standard Levenshtein operations
             let deletion = dp[i - 1][j] + 1.0;
             let insertion = dp[i][j - 1] + 1.0;
 
-            // Check for single character substitution
+            // Single character substitution
+            let c1 = v1[i - 1].to_string();
+            let c2 = v2[j - 1].to_string();
             let char_sub_cost = if v1[i - 1] == v2[j - 1] {
                 0.0
             } else {
-                // Use character comparison instead of substring comparison
-                let c1 = v1[i - 1].to_string();
-                let c2 = v2[j - 1].to_string();
                 cost_map.get_substitution_cost(&c1, &c2)
             };
             let char_substitution = dp[i - 1][j - 1] + char_sub_cost;
 
+            // Initialize with standard operations
             dp[i][j] = deletion.min(insertion).min(char_substitution);
 
-            for len_a in 1..=max_substr_len.min(i) {
-                for len_b in 1..=max_substr_len.min(j) {
-                    if len_a == 1 && len_b == 1 {
-                        continue; // Already handled above
-                    }
-
-                    // Get the substring ranges
-                    let start_a = i - len_a;
-                    let start_b = j - len_b;
-
-                    // Extract substrings as strings
-                    let substr_a = v1[start_a..i].iter().collect::<String>();
-                    let substr_b = v2[start_b..j].iter().collect::<String>();
-
-                    // Only apply the substitution if it's explicitly in our cost map
-                    // Check if this specific substitution is in our cost map
-                    let has_custom_cost = cost_map
-                        .costs
-                        .contains_key(&(substr_a.clone(), substr_b.clone()))
-                        || cost_map
-                            .costs
-                            .contains_key(&(substr_b.clone(), substr_a.clone()));
-
-                    if has_custom_cost {
-                        // Get cost from the map
-                        let sub_cost = cost_map.get_substitution_cost(&substr_a, &substr_b);
-
-                        let previous_cost = dp[start_a][start_b];
-                        let with_substitution = previous_cost + sub_cost;
-
-                        // Update if this gives a better result
-                        dp[i][j] = dp[i][j].min(with_substitution);
-                    }
-                }
-            }
+            // Check multi-character substitutions
+            check_multi_char_substitutions(i, j, &v1, &v2, &mut dp, max_substr_len, cost_map);
         }
     }
 
     dp[len1][len2]
+}
+
+/// Helper function to check multi-character substitutions for the Levenshtein algorithm
+fn check_multi_char_substitutions(
+    i: usize,
+    j: usize,
+    v1: &[char],
+    v2: &[char],
+    dp: &mut [Vec<f64>],
+    max_substr_len: usize,
+    cost_map: &OcrCostMap,
+) {
+    // Skip single character case as it's already handled in the main function
+    for len_a in 1..=max_substr_len.min(i) {
+        for len_b in 1..=max_substr_len.min(j) {
+            if len_a == 1 && len_b == 1 {
+                continue; // Already handled above
+            }
+
+            // Calculate substring bounds
+            let start_a = i - len_a;
+            let start_b = j - len_b;
+
+            // Extract substrings as strings
+            let substr_a: String = v1[start_a..i].iter().collect();
+            let substr_b: String = v2[start_b..j].iter().collect();
+
+            // Only check if this substitution exists in the cost map
+            if cost_map.has_substitution(&substr_a, &substr_b) {
+                let sub_cost = cost_map.get_substitution_cost(&substr_a, &substr_b);
+                let with_substitution = dp[start_a][start_b] + sub_cost;
+
+                // Update if this gives a better result
+                dp[i][j] = dp[i][j].min(with_substitution);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
