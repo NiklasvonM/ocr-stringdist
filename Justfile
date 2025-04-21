@@ -12,3 +12,9 @@ test:
 
 mypy:
     uv run mypy .
+
+lint:
+    uv run ruff check . --fix
+
+doc:
+    uv run make -C docs html
