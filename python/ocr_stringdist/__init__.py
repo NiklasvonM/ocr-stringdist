@@ -20,6 +20,7 @@ def weighted_levenshtein_distance(
     *,
     symmetric: bool = True,
     default_cost: float = 1.0,
+    max_token_characters: int = 1,
 ) -> float:
     """
     Levenshtein distance with custom substitution costs.
@@ -30,17 +31,29 @@ def weighted_levenshtein_distance(
 
     :param s1: First string
     :param s2: Second string
-    :param cost_map: Dictionary mapping tuples of characters to their substitution cost.
+    :param cost_map: Dictionary mapping tuples of strings ("substitution tokens") to their
+                     substitution costs.
                      Only one direction needs to be configured unless `symmetric` is False.
+                     Note that you need to set `max_token_characters` if the substitution tokens
+                     have more than one character, for example when substituting "w" for "vv".
                      Defaults to `ocr_stringdist.ocr_distance_map`.
     :param symmetric: Should the keys of `cost_map` be considered to be symmetric? Defaults to True.
     :param default_cost: The default substitution cost for character pairs not found in `cost_map`.
+    :param max_token_characters: A positive integer, indicating the maximum number of characters a
+                                 substitution token in `cost_map` may have. The default 1 indicates
+                                 that only single characters can be substituted for each other.
+                                 Higher values lead to slower calculations.
     """
     if cost_map is None:
         cost_map = ocr_distance_map
     # _weighted_levenshtein_distance is written in Rust, see src/rust_stringdist.rs.
     return _weighted_levenshtein_distance(  # type: ignore  # noqa: F405
-        s1, s2, cost_map=cost_map, symmetric=symmetric, default_cost=default_cost
+        s1,
+        s2,
+        cost_map=cost_map,
+        symmetric=symmetric,
+        default_cost=default_cost,
+        max_token_characters=max_token_characters,
     )
 
 
@@ -52,6 +65,7 @@ def batch_weighted_levenshtein_distance(
     *,
     symmetric: bool = True,
     default_cost: float = 1.0,
+    max_token_characters: int = 1,
 ) -> list[float]:
     """
     Calculate weighted Levenshtein distances between a string and multiple candidates.
@@ -65,11 +79,20 @@ def batch_weighted_levenshtein_distance(
                      Defaults to `ocr_stringdist.ocr_distance_map`.
     :param symmetric: Should the keys of `cost_map` be considered to be symmetric? Defaults to True.
     :param default_cost: The default substitution cost for character pairs not found in `cost_map`.
+    :param max_token_characters: A positive integer, indicating the maximum number of characters a
+                                 substitution token in `cost_map` may have. The default 1 indicates
+                                 that only single characters can be substituted for each other.
+                                 Higher values lead to slower calculations.
     :return: A list of distances corresponding to each candidate
     """
     if cost_map is None:
         cost_map = ocr_distance_map
     # _batch_weighted_levenshtein_distance is written in Rust, see src/rust_stringdist.rs.
     return _batch_weighted_levenshtein_distance(  # type: ignore  # noqa: F405
-        s, candidates, cost_map=cost_map, symmetric=symmetric, default_cost=default_cost
+        s,
+        candidates,
+        cost_map=cost_map,
+        symmetric=symmetric,
+        default_cost=default_cost,
+        max_token_characters=max_token_characters,
     )

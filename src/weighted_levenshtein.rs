@@ -80,7 +80,12 @@ impl OcrCostMap {
 
 /// Calculates custom Levenshtein distance between two strings using a provided cost map.
 /// This implementation considers string-to-string substitutions rather than just characters.
-pub fn custom_levenshtein_distance_with_cost_map(s1: &str, s2: &str, cost_map: &OcrCostMap) -> f64 {
+pub fn custom_levenshtein_distance_with_cost_map(
+    s1: &str,
+    s2: &str,
+    cost_map: &OcrCostMap,
+    max_token_characters: usize,
+) -> f64 {
     if s1 == s2 {
         return 0.0;
     }
@@ -111,7 +116,7 @@ pub fn custom_levenshtein_distance_with_cost_map(s1: &str, s2: &str, cost_map: &
     }
 
     // Limit on substring lengths to check
-    let max_substr_len = 5.min(len1.max(len2));
+    let max_substr_len = max_token_characters.min(len1.max(len2));
 
     // Fill the dp matrix
     for i in 1..=len1 {
@@ -201,7 +206,7 @@ mod test {
         );
 
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("abc", "bbc", &cost_map),
+            custom_levenshtein_distance_with_cost_map("abc", "bbc", &cost_map, 3),
             0.1,
             1e-9,
         );
@@ -217,14 +222,14 @@ mod test {
 
         // Test that "hi" with "Ini" has a low cost due to the special substitution
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("hi", "Ini", &cost_map),
+            custom_levenshtein_distance_with_cost_map("hi", "Ini", &cost_map, 2),
             0.2, // Only the h->In substitution cost
             1e-9,
         );
 
         // Test another example
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("hello", "Inello", &cost_map),
+            custom_levenshtein_distance_with_cost_map("hello", "Inello", &cost_map, 2),
             0.2, // Only the h->In substitution cost
             1e-9,
         );
@@ -239,7 +244,7 @@ mod test {
 
         // Test multiple substitutions in the same string
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("hello", "Ine11o", &cost_map),
+            custom_levenshtein_distance_with_cost_map("hello", "Ine11o", &cost_map, 2),
             0.8, // 0.2 for h->In and 0.3+0.3 for l->1 twice
             1e-9,
         );
@@ -254,14 +259,14 @@ mod test {
 
         // Test the rn->m substitution
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("corner", "comer", &cost_map),
+            custom_levenshtein_distance_with_cost_map("corner", "comer", &cost_map, 2),
             0.1,
             1e-9,
         );
 
         // Test the cl->d substitution
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("class", "dass", &cost_map),
+            custom_levenshtein_distance_with_cost_map("class", "dass", &cost_map, 2),
             0.2,
             1e-9,
         );
@@ -278,14 +283,14 @@ mod test {
 
         // Test 0->O substitution (lower cost)
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("R0AD", "ROAD", &cost_map),
+            custom_levenshtein_distance_with_cost_map("R0AD", "ROAD", &cost_map, 1),
             0.1,
             1e-9,
         );
 
         // Test O->0 substitution (higher cost)
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("rOad", "r0ad", &cost_map),
+            custom_levenshtein_distance_with_cost_map("rOad", "r0ad", &cost_map, 1),
             0.5,
             1e-9,
         );
@@ -299,14 +304,14 @@ mod test {
 
         // Test substitution at start of word
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("rnat", "mat", &cost_map),
+            custom_levenshtein_distance_with_cost_map("rnat", "mat", &cost_map, 2),
             0.1,
             1e-9,
         );
 
         // Test substitution at end of word
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("burn", "bum", &cost_map),
+            custom_levenshtein_distance_with_cost_map("burn", "bum", &cost_map, 2),
             0.1,
             1e-9,
         );
@@ -319,13 +324,13 @@ mod test {
 
         // Test that "h" -> "In" costs 2.0 (1 deletion + 1 substitution) since there's no custom mapping
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("h", "In", &cost_map),
+            custom_levenshtein_distance_with_cost_map("h", "In", &cost_map, 1),
             2.0,
             1e-9,
         );
 
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("kitten", "sitting", &cost_map),
+            custom_levenshtein_distance_with_cost_map("kitten", "sitting", &cost_map, 1),
             3.0,
             1e-9,
         );
@@ -339,7 +344,7 @@ mod test {
         // - Insert 'e' (1)
         // Total: 4 operations
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_map("café", "coffee", &cost_map),
+            custom_levenshtein_distance_with_cost_map("café", "coffee", &cost_map, 1),
             4.0, // 4 edits required
             1e-9,
         );

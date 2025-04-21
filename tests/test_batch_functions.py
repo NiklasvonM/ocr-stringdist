@@ -40,12 +40,14 @@ def test_batch_vs_individual(
     """Test that batch results match individual function calls."""
     # Individual results
     individual_results = [
-        weighted_levenshtein_distance(source, candidate, cost_map=cost_map)
+        weighted_levenshtein_distance(source, candidate, cost_map=cost_map, max_token_characters=2)
         for candidate in candidates
     ]
 
     # Batch results
-    batch_results = batch_weighted_levenshtein_distance(source, candidates, cost_map=cost_map)
+    batch_results = batch_weighted_levenshtein_distance(
+        source, candidates, cost_map=cost_map, max_token_characters=2
+    )
 
     # Compare results
     for ind, batch in zip(individual_results, batch_results):
@@ -77,7 +79,9 @@ def test_batch_finds_best_match(
 ) -> None:
     """Test that batch processing correctly identifies the best match."""
     # Using OCR cost map
-    distances = batch_weighted_levenshtein_distance(source, candidates, cost_map=OCR_COST_MAP)
+    distances = batch_weighted_levenshtein_distance(
+        source, candidates, cost_map=OCR_COST_MAP, max_token_characters=2
+    )
     print(f"------------------------------------distances: {distances}")
 
     # Find the index with minimum distance
@@ -97,12 +101,14 @@ def test_batch_finds_best_match(
 )
 def test_custom_cost_map(test_string: str, expected_distance: float) -> None:
     """Test using a custom cost map for specific substitution costs."""
-    result = weighted_levenshtein_distance("hello", test_string, cost_map=OCR_COST_MAP)
+    result = weighted_levenshtein_distance(
+        "hello", test_string, cost_map=OCR_COST_MAP, max_token_characters=2
+    )
     assert result == pytest.approx(expected_distance)
 
     # Check that batch processing gives the same result
     batch_result = batch_weighted_levenshtein_distance(
-        "hello", [test_string], cost_map=OCR_COST_MAP
+        "hello", [test_string], cost_map=OCR_COST_MAP, max_token_characters=2
     )[0]
     assert batch_result == pytest.approx(expected_distance)
 
@@ -120,11 +126,15 @@ def test_empty_vs_default_cost_map(
 ) -> None:
     """Test that empty cost maps produce different results than default cost maps."""
     # With empty cost map (all costs are 1.0)
-    default_result = batch_weighted_levenshtein_distance(string1, [string2], cost_map={})
+    default_result = batch_weighted_levenshtein_distance(
+        string1, [string2], cost_map={}, max_token_characters=2
+    )
     assert default_result[0] == pytest.approx(default_map_distance)
 
     # With custom cost map (OCR-specific costs)
-    custom_result = batch_weighted_levenshtein_distance(string1, [string2], cost_map=OCR_COST_MAP)
+    custom_result = batch_weighted_levenshtein_distance(
+        string1, [string2], cost_map=OCR_COST_MAP, max_token_characters=2
+    )
     assert custom_result[0] == pytest.approx(custom_map_distance)
 
     # Custom map should give lower distance for OCR errors

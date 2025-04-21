@@ -6,38 +6,42 @@ use rayon::prelude::*;
 
 // Calculates the weighted Levenshtein distance with a custom cost map from Python.
 #[pyfunction]
-#[pyo3(signature = (a, b, cost_map, symmetric = true, default_cost = 1.0))]
+#[pyo3(signature = (a, b, cost_map, symmetric = true, default_cost = 1.0, max_token_characters = 1))]
 fn _weighted_levenshtein_distance(
     a: &str,
     b: &str,
     cost_map: &Bound<'_, PyDict>,
     symmetric: bool,
-    default_cost: Option<f64>,
+    default_cost: f64,
+    max_token_characters: usize,
 ) -> PyResult<f64> {
     Ok(_weighted_lev_with_map(
         a,
         b,
-        &OcrCostMap::from_py_dict(cost_map, default_cost.unwrap_or(1.0), symmetric),
+        &OcrCostMap::from_py_dict(cost_map, default_cost, symmetric),
+        max_token_characters,
     ))
 }
 
 // Calculates the weighted Levenshtein distance between a string and a list of candidates.
 #[pyfunction]
-#[pyo3(signature = (s, candidates, cost_map, symmetric = true, default_cost = 1.0))]
+#[pyo3(signature = (s, candidates, cost_map, symmetric = true, default_cost = 1.0, max_token_characters = 1))]
 fn _batch_weighted_levenshtein_distance(
     s: &str,
     candidates: Vec<String>,
     cost_map: &Bound<'_, PyDict>,
     symmetric: bool,
-    default_cost: Option<f64>,
+    default_cost: f64,
+    max_token_characters: usize,
 ) -> PyResult<Vec<f64>> {
-    let custom_cost_map =
-        OcrCostMap::from_py_dict(cost_map, default_cost.unwrap_or(1.0), symmetric);
+    let custom_cost_map = OcrCostMap::from_py_dict(cost_map, default_cost, symmetric);
 
     // Calculate distances for each candidate in parallel
     let distances: Vec<f64> = candidates
         .par_iter()
-        .map(|candidate| _weighted_lev_with_map(s, candidate, &custom_cost_map))
+        .map(|candidate| {
+            _weighted_lev_with_map(s, candidate, &custom_cost_map, max_token_characters)
+        })
         .collect();
 
     Ok(distances)

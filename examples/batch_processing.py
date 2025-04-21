@@ -8,6 +8,8 @@ from typing import Any, Callable
 
 import ocr_stringdist as osd
 
+MAX_TOKEN_CHARACTERS = 1
+
 
 def benchmark(func: Callable, *args: Any, **kwargs: Any) -> tuple[Any, float]:  # type: ignore
     """Run a function and return the execution time in seconds."""
@@ -23,14 +25,19 @@ def compare_methods() -> None:
     """
     # Example data
     source = "recognition"
-    candidates = ["recognition", "recogmtion", "recognltlon", "recogrtition", "recognitton"] * 100
+    candidates = ["recognition", "recogmtion", "recognltlon", "recogrtition", "recognitton"] * 1000
 
     print("\nSingle string against multiple candidates:")
     print("-" * 50)
 
     # Standard loop approach
     _, time_loop = benchmark(
-        lambda: [osd.weighted_levenshtein_distance(source, cand) for cand in candidates]
+        lambda: [
+            osd.weighted_levenshtein_distance(
+                source, cand, max_token_characters=MAX_TOKEN_CHARACTERS
+            )
+            for cand in candidates
+        ]
     )
     print(
         f"Loop of single calls: {time_loop:.6f} seconds "
@@ -38,7 +45,12 @@ def compare_methods() -> None:
     )
 
     # Batch approach
-    _, time_batch = benchmark(osd.batch_weighted_levenshtein_distance, source, candidates)
+    _, time_batch = benchmark(
+        osd.batch_weighted_levenshtein_distance,
+        source,
+        candidates,
+        max_token_characters=MAX_TOKEN_CHARACTERS,
+    )
     print(
         f"Batch function: {time_batch:.6f} seconds "
         f"({1000 * time_batch / len(candidates):.6f}ms each)"

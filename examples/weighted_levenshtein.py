@@ -24,6 +24,7 @@ ic(
         "이탈리",
         "OI탈리",  # Korean syllables may be confused with multiple Latin letters at once
         {("이", "OI"): 0.5},
+        max_token_characters=2,
     ),
 )
 

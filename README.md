@@ -45,7 +45,7 @@ distance = osd.weighted_levenshtein_distance(
     "hi", "Ini",
     cost_map=custom_map,
     symmetric=True,
-    default_cost=1.0,
+    max_token_characters=2,
 )
 print(f"Distance with custom map: {distance}")
 ```
