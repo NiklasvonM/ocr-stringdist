@@ -5,9 +5,10 @@ API Reference
 
 This page contains the auto-generated API reference documentation.
 
-.. autofunction:: ocr_stringdist.weighted_levenshtein_distance
-
-.. autofunction:: ocr_stringdist.batch_weighted_levenshtein_distance
+.. automodule:: ocr_stringdist.levenshtein
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 .. automodule:: ocr_stringdist.matching
    :members:

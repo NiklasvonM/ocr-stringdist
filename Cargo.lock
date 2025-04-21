@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "ocr_stringdist"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "pyo3",
  "rayon",

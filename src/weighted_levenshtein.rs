@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 #[derive(Clone, Debug)]
 pub struct OcrCostMap {
     /// Maps pairs of strings to their specific substitution cost.
-    costs: HashMap<(String, String), f64>,
+    pub costs: HashMap<(String, String), f64>,
     /// Default cost for substitutions not found in the map.
     default_substitution_cost: f64,
 }

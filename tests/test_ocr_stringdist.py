@@ -35,9 +35,7 @@ from ocr_stringdist import weighted_levenshtein_distance
 def test_weighted_levenshtein_distance(
     s1: str, s2: str, cost_map: dict[tuple[str, str], float], expected: float
 ) -> None:
-    assert weighted_levenshtein_distance(
-        s1, s2, cost_map=cost_map, max_token_characters=3
-    ) == pytest.approx(expected)
+    assert weighted_levenshtein_distance(s1, s2, cost_map=cost_map) == pytest.approx(expected)
 
 
 def test_complex_ocr_substitutions() -> None:
@@ -57,12 +55,8 @@ def test_complex_ocr_substitutions() -> None:
     original = "The man ran down the hill at 10 km/h."
     ocr_result = "Tine rnan ram dovvn tine Ini11 at 1O krn/In."
 
-    distance = weighted_levenshtein_distance(
-        original, ocr_result, cost_map=ocr_cost_map, max_token_characters=3
-    )
-    standard_distance = weighted_levenshtein_distance(
-        original, ocr_result, cost_map={}, max_token_characters=3
-    )
+    distance = weighted_levenshtein_distance(original, ocr_result, cost_map=ocr_cost_map)
+    standard_distance = weighted_levenshtein_distance(original, ocr_result, cost_map={})
     assert standard_distance > distance
 
 
@@ -83,7 +77,7 @@ def test_asymmetric_substitution_costs(s1: str, s2: str, expected: float) -> Non
         ("S", "5"): 0.6,
     }
     assert weighted_levenshtein_distance(
-        s1, s2, cost_map=asymmetric_cost_map, symmetric=False, max_token_characters=3
+        s1, s2, cost_map=asymmetric_cost_map, symmetric=False
     ) == pytest.approx(expected)
 
 
@@ -107,6 +101,6 @@ def test_nested_substitution_patterns(s1: str, s2: str, expected: float) -> None
         ("abc", "d"): 0.3,
         ("d", "abc"): 0.3,
     }
-    assert weighted_levenshtein_distance(
-        s1, s2, cost_map=nested_cost_map, max_token_characters=3
-    ) == pytest.approx(expected)
+    assert weighted_levenshtein_distance(s1, s2, cost_map=nested_cost_map) == pytest.approx(
+        expected
+    )
