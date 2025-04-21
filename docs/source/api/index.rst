@@ -5,14 +5,18 @@ API Reference
 
 This page contains the auto-generated API reference documentation.
 
-.. autofunction:: ocr_stringdist.__init__.weighted_levenshtein_distance
+.. autofunction:: ocr_stringdist.weighted_levenshtein_distance
+
+.. autofunction:: ocr_stringdist.batch_weighted_levenshtein_distance
 
 .. automodule:: ocr_stringdist.matching
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: ocr_stringdist.default_ocr_distances
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autodata:: ocr_stringdist.default_ocr_distances.ocr_distance_map
+   :annotation:
+.. literalinclude:: ../../../python/ocr_stringdist/default_ocr_distances.py
+   :language: python
+   :start-after: OCR_DISTANCE_MAP_START
+   :end-before: OCR_DISTANCE_MAP_END

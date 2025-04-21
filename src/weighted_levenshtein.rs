@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
 #[derive(Clone, Debug)]
 pub struct OcrCostMap {
     /// Maps pairs of strings to their specific substitution cost.
@@ -29,6 +32,28 @@ impl OcrCostMap {
             costs,
             default_substitution_cost,
         }
+    }
+
+    #[cfg(feature = "python")]
+    /// Creates an OcrCostMap from a Python dictionary.
+    /// This method is only available when the "python" feature is enabled.
+    pub fn from_py_dict<'a, D>(py_dict: &'a D, default_cost: f64, symmetric: bool) -> Self
+    where
+        D: PyDictMethods<'a>,
+    {
+        let mut substitution_costs: HashMap<(String, String), f64> = HashMap::new();
+
+        // Convert Python dictionary to Rust HashMap
+        for (key, value) in py_dict.iter() {
+            if let Ok(key_tuple) = key.extract::<(String, String)>() {
+                if let Ok(cost) = value.extract::<f64>() {
+                    substitution_costs.insert((key_tuple.0, key_tuple.1), cost);
+                }
+            }
+        }
+
+        // Create the OcrCostMap
+        Self::new(substitution_costs, default_cost, symmetric)
     }
 
     /// Gets the substitution cost between two strings.

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from icecream import ic
 from ocr_stringdist import find_best_candidate, weighted_levenshtein_distance
 

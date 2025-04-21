@@ -1,3 +1,5 @@
+# Start marker for literalinclude, see docs/source/api/index.rst.
+# OCR_DISTANCE_MAP_START
 ocr_distance_map: dict[tuple[str, str], float] = {
     ("O", "0"): 0.1,
     ("l", "1"): 0.1,
@@ -31,6 +33,8 @@ ocr_distance_map: dict[tuple[str, str], float] = {
     ("é", "á"): 0.7,
     ("E", "F"): 0.8,
 }
+# OCR_DISTANCE_MAP_END
+# End marker for literalinclude
 """
 Pre-defined distance map between characters, considering common OCR errors.
 The distances are between 0 and 1.
