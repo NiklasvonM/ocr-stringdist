@@ -1,6 +1,7 @@
 use crate::custom_levenshtein_distance_with_cost_map as _weighted_lev_with_map;
 use crate::longest_key_string_length;
 use crate::OcrCostMap;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
@@ -15,6 +16,10 @@ fn _weighted_levenshtein_distance(
     symmetric: bool,
     default_cost: f64,
 ) -> PyResult<f64> {
+    if default_cost < 0.0 {
+        return Err(PyValueError::new_err("default_cost must be non-negative"));
+    }
+
     let ocr_cost_map = OcrCostMap::from_py_dict(cost_map, default_cost, symmetric);
     let max_token_characters = longest_key_string_length(&ocr_cost_map.costs);
     Ok(_weighted_lev_with_map(
@@ -35,6 +40,14 @@ fn _batch_weighted_levenshtein_distance(
     symmetric: bool,
     default_cost: f64,
 ) -> PyResult<Vec<f64>> {
+    if default_cost < 0.0 {
+        return Err(PyValueError::new_err("default_cost must be non-negative"));
+    }
+
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let ocr_cost_map = OcrCostMap::from_py_dict(cost_map, default_cost, symmetric);
     let max_token_characters = longest_key_string_length(&ocr_cost_map.costs);
 
