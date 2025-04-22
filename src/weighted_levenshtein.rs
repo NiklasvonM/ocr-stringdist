@@ -79,10 +79,12 @@ impl OcrCostMap {
         if s1 == s2 {
             0.0 // No cost if strings are identical
         } else {
+            let key_pair = (s1.to_string(), s2.to_string());
+
             // Lookup the pair (symmetry is handled by storage in `new`)
             // Use the map's configured default_substitution_cost as the fallback.
             self.costs
-                .get(&(s1.to_string(), s2.to_string()))
+                .get(&key_pair)
                 .copied() // Get the cost if the key exists
                 .unwrap_or(self.default_substitution_cost) // Fallback to configured default
         }
@@ -90,7 +92,8 @@ impl OcrCostMap {
 
     /// Checks if the cost map contains a specific substitution
     pub fn has_substitution(&self, s1: &str, s2: &str) -> bool {
-        self.costs.contains_key(&(s1.to_string(), s2.to_string()))
+        let key_pair = (s1.to_string(), s2.to_string());
+        self.costs.contains_key(&key_pair)
     }
 }
 

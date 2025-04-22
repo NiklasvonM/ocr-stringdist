@@ -6,6 +6,16 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
 
+/// Validates that the default cost is non-negative
+fn validate_default_cost(default_cost: f64) -> PyResult<()> {
+    if default_cost < 0.0 {
+        return Err(PyValueError::new_err(format!(
+            "default_cost must be non-negative, got value: {default_cost}"
+        )));
+    }
+    Ok(())
+}
+
 // Calculates the weighted Levenshtein distance with a custom cost map from Python.
 #[pyfunction]
 #[pyo3(signature = (a, b, cost_map, symmetric = true, default_cost = 1.0))]
@@ -16,11 +26,7 @@ fn _weighted_levenshtein_distance(
     symmetric: bool,
     default_cost: f64,
 ) -> PyResult<f64> {
-    if default_cost < 0.0 {
-        return Err(PyValueError::new_err(format!(
-            "default_cost must be non-negative, got value: {default_cost}"
-        )));
-    }
+    validate_default_cost(default_cost)?;
 
     let ocr_cost_map = OcrCostMap::from_py_dict(cost_map, default_cost, symmetric);
     let max_token_characters = longest_key_string_length(&ocr_cost_map.costs);
@@ -42,11 +48,7 @@ fn _batch_weighted_levenshtein_distance(
     symmetric: bool,
     default_cost: f64,
 ) -> PyResult<Vec<f64>> {
-    if default_cost < 0.0 {
-        return Err(PyValueError::new_err(format!(
-            "default_cost must be non-negative, got value: {default_cost}"
-        )));
-    }
+    validate_default_cost(default_cost)?;
 
     if candidates.is_empty() {
         return Ok(Vec::new());
