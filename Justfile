@@ -5,10 +5,11 @@ venv:
 
 pytest:
     uv run maturin develop
-    uv run pytest
+    uv run pytest --cov=python/ocr_stringdist tests
 
 test:
-    cargo test
+    cargo llvm-cov
+    #cargo test
 
 mypy:
     uv run mypy .
