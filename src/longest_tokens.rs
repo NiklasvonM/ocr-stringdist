@@ -3,9 +3,7 @@ use crate::types::SubstitutionCostMap;
 /// Calculates the length of the longest string found within the key tuples of a HashMap.
 pub fn longest_key_string_length(map: &SubstitutionCostMap) -> usize {
     map.keys()
-        .flat_map(|(s1, s2)| [s1.len(), s2.len()].into_iter())
-        .max()
-        .unwrap_or(1)
+        .fold(1, |max_len, (s1, s2)| max_len.max(s1.len()).max(s2.len()))
 }
 
 #[cfg(test)]

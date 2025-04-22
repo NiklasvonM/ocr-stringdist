@@ -112,7 +112,8 @@ pub fn custom_levenshtein_distance_with_cost_map(
     // For empty strings, return the length of the other string
     if len_source == 0 {
         return len_target as f64;
-    } else if len_target == 0 {
+    }
+    if len_target == 0 {
         return len_source as f64;
     }
 
@@ -172,8 +173,8 @@ pub fn custom_levenshtein_distance_with_cost_map(
 
 /// Helper function to check multi-character substitutions for the Levenshtein algorithm
 fn check_multi_char_substitutions(
-    i: usize,
-    j: usize,
+    current_i: usize,
+    current_j: usize,
     source_chars: &[char],
     target_chars: &[char],
     dp: &mut [Vec<f64>],
@@ -181,27 +182,40 @@ fn check_multi_char_substitutions(
     cost_map: &OcrCostMap,
 ) {
     // Skip single character case as it's already handled in the main function
-    for len_a in 1..=max_substr_len.min(i) {
-        for len_b in 1..=max_substr_len.min(j) {
-            if len_a == 1 && len_b == 1 {
-                continue; // Already handled above
+    let max_source_len = max_substr_len.min(current_i);
+    let max_target_len = max_substr_len.min(current_j);
+
+    // If we can't form multi-character substitutions, exit early
+    if max_source_len < 1 || max_target_len < 1 {
+        return;
+    }
+
+    for source_len in 1..=max_source_len {
+        for target_len in 1..=max_target_len {
+            // Skip single-char to single-char substitution as it's already handled
+            if source_len == 1 && target_len == 1 {
+                continue;
             }
 
             // Calculate substring bounds
-            let start_a = i - len_a;
-            let start_b = j - len_b;
+            let source_start = current_i - source_len;
+            let target_start = current_j - target_len;
 
             // Extract substrings as strings
-            let substr_a: String = source_chars[start_a..i].iter().collect();
-            let substr_b: String = target_chars[start_b..j].iter().collect();
+            let source_substr: String = source_chars[source_start..current_i].iter().collect();
+            let target_substr: String = target_chars[target_start..current_j].iter().collect();
 
             // Only check if this substitution exists in the cost map
-            if cost_map.has_substitution(&substr_a, &substr_b) {
-                let sub_cost = cost_map.get_substitution_cost(&substr_a, &substr_b);
-                let with_substitution = dp[start_a][start_b] + sub_cost;
+            if !cost_map.has_substitution(&source_substr, &target_substr) {
+                continue;
+            }
 
-                // Update if this gives a better result
-                dp[i][j] = dp[i][j].min(with_substitution);
+            let sub_cost = cost_map.get_substitution_cost(&source_substr, &target_substr);
+            let new_cost = dp[source_start][target_start] + sub_cost;
+
+            // Update if this gives a better result
+            if new_cost < dp[current_i][current_j] {
+                dp[current_i][current_j] = new_cost;
             }
         }
     }

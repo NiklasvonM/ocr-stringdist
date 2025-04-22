@@ -17,7 +17,9 @@ fn _weighted_levenshtein_distance(
     default_cost: f64,
 ) -> PyResult<f64> {
     if default_cost < 0.0 {
-        return Err(PyValueError::new_err("default_cost must be non-negative"));
+        return Err(PyValueError::new_err(format!(
+            "default_cost must be non-negative, got value: {default_cost}"
+        )));
     }
 
     let ocr_cost_map = OcrCostMap::from_py_dict(cost_map, default_cost, symmetric);
@@ -41,7 +43,9 @@ fn _batch_weighted_levenshtein_distance(
     default_cost: f64,
 ) -> PyResult<Vec<f64>> {
     if default_cost < 0.0 {
-        return Err(PyValueError::new_err("default_cost must be non-negative"));
+        return Err(PyValueError::new_err(format!(
+            "default_cost must be non-negative, got value: {default_cost}"
+        )));
     }
 
     if candidates.is_empty() {

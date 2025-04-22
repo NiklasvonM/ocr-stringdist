@@ -107,5 +107,8 @@ def test_nested_substitution_patterns(s1: str, s2: str, expected: float) -> None
 
 
 def test_negative_default_cost() -> None:
-    with pytest.raises(ValueError, match="default_cost must be non-negative"):
-        weighted_levenshtein_distance("a", "b", default_cost=-1.0)
+    invalid_cost = -1.0
+    with pytest.raises(
+        ValueError, match=f"default_cost must be non-negative, got value: {invalid_cost:.0f}"
+    ):
+        weighted_levenshtein_distance("a", "b", default_cost=invalid_cost)
