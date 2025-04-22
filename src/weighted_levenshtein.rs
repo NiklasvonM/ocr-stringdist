@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::types::SubstitutionCostMap;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -6,9 +6,19 @@ use pyo3::prelude::*;
 #[derive(Clone, Debug)]
 pub struct OcrCostMap {
     /// Maps pairs of strings to their specific substitution cost.
-    pub costs: HashMap<(String, String), f64>,
+    pub costs: SubstitutionCostMap,
     /// Default cost for substitutions not found in the map.
     default_substitution_cost: f64,
+}
+
+impl Default for OcrCostMap {
+    /// Creates a new OcrCostMap with default values.
+    fn default() -> Self {
+        Self {
+            costs: SubstitutionCostMap::new(),
+            default_substitution_cost: 1.0,
+        }
+    }
 }
 
 impl OcrCostMap {
@@ -16,11 +26,11 @@ impl OcrCostMap {
     /// Ensures symmetry by adding both (a, b) and (b, a) if only one is provided.
     /// If symmetric, keys are inserted in both directions.
     pub fn new(
-        custom_costs_input: HashMap<(String, String), f64>,
+        custom_costs_input: SubstitutionCostMap,
         default_substitution_cost: f64,
         symmetric: bool,
     ) -> Self {
-        let mut costs = HashMap::with_capacity(custom_costs_input.len() * 2); // Pre-allocate
+        let mut costs = SubstitutionCostMap::with_capacity(custom_costs_input.len() * 2);
         for ((s1, s2), cost) in custom_costs_input {
             costs.entry((s1.clone(), s2.clone())).or_insert(cost);
             if symmetric {
@@ -34,6 +44,12 @@ impl OcrCostMap {
         }
     }
 
+    /// Creates a new OcrCostMap with the specified custom costs.
+    /// Uses default values for other parameters.
+    pub fn with_costs(custom_costs: SubstitutionCostMap) -> Self {
+        Self::new(custom_costs, 1.0, true)
+    }
+
     #[cfg(feature = "python")]
     /// Creates an OcrCostMap from a Python dictionary.
     /// This method is only available when the "python" feature is enabled.
@@ -41,7 +57,7 @@ impl OcrCostMap {
     where
         D: PyDictMethods<'a>,
     {
-        let mut substitution_costs: HashMap<(String, String), f64> = HashMap::new();
+        let mut substitution_costs = SubstitutionCostMap::new();
 
         // Convert Python dictionary to Rust HashMap
         for (key, value) in py_dict.iter() {
@@ -81,54 +97,54 @@ impl OcrCostMap {
 /// Calculates custom Levenshtein distance between two strings using a provided cost map.
 /// This implementation considers string-to-string substitutions rather than just characters.
 pub fn custom_levenshtein_distance_with_cost_map(
-    s1: &str,
-    s2: &str,
+    source: &str,
+    target: &str,
     cost_map: &OcrCostMap,
     max_token_characters: usize,
 ) -> f64 {
-    if s1 == s2 {
+    if source == target {
         return 0.0;
     }
 
-    let len1 = s1.chars().count();
-    let len2 = s2.chars().count();
+    let len_source = source.chars().count();
+    let len_target = target.chars().count();
 
     // For empty strings, return the length of the other string
-    if len1 == 0 {
-        return len2 as f64;
-    } else if len2 == 0 {
-        return len1 as f64;
+    if len_source == 0 {
+        return len_target as f64;
+    } else if len_target == 0 {
+        return len_source as f64;
     }
 
     // Convert to character vectors for correct Unicode handling
-    let v1: Vec<char> = s1.chars().collect();
-    let v2: Vec<char> = s2.chars().collect();
+    let source_chars: Vec<char> = source.chars().collect();
+    let target_chars: Vec<char> = target.chars().collect();
 
     // Create dynamic programming matrix
-    let mut dp = vec![vec![0.0; len2 + 1]; len1 + 1];
+    let mut dp = vec![vec![0.0; len_target + 1]; len_source + 1];
 
     // Initialize first row and column
-    for i in 0..=len1 {
+    for i in 0..=len_source {
         dp[i][0] = i as f64;
     }
-    for j in 0..=len2 {
+    for j in 0..=len_target {
         dp[0][j] = j as f64;
     }
 
     // Limit on substring lengths to check
-    let max_substr_len = max_token_characters.min(len1.max(len2));
+    let max_substr_len = max_token_characters.min(len_source.max(len_target));
 
     // Fill the dp matrix
-    for i in 1..=len1 {
-        for j in 1..=len2 {
+    for i in 1..=len_source {
+        for j in 1..=len_target {
             // Standard Levenshtein operations
             let deletion = dp[i - 1][j] + 1.0;
             let insertion = dp[i][j - 1] + 1.0;
 
             // Single character substitution
-            let c1 = v1[i - 1].to_string();
-            let c2 = v2[j - 1].to_string();
-            let char_sub_cost = if v1[i - 1] == v2[j - 1] {
+            let c1 = source_chars[i - 1].to_string();
+            let c2 = target_chars[j - 1].to_string();
+            let char_sub_cost = if source_chars[i - 1] == target_chars[j - 1] {
                 0.0
             } else {
                 cost_map.get_substitution_cost(&c1, &c2)
@@ -139,19 +155,27 @@ pub fn custom_levenshtein_distance_with_cost_map(
             dp[i][j] = deletion.min(insertion).min(char_substitution);
 
             // Check multi-character substitutions
-            check_multi_char_substitutions(i, j, &v1, &v2, &mut dp, max_substr_len, cost_map);
+            check_multi_char_substitutions(
+                i,
+                j,
+                &source_chars,
+                &target_chars,
+                &mut dp,
+                max_substr_len,
+                cost_map,
+            );
         }
     }
 
-    dp[len1][len2]
+    dp[len_source][len_target]
 }
 
 /// Helper function to check multi-character substitutions for the Levenshtein algorithm
 fn check_multi_char_substitutions(
     i: usize,
     j: usize,
-    v1: &[char],
-    v2: &[char],
+    source_chars: &[char],
+    target_chars: &[char],
     dp: &mut [Vec<f64>],
     max_substr_len: usize,
     cost_map: &OcrCostMap,
@@ -168,8 +192,8 @@ fn check_multi_char_substitutions(
             let start_b = j - len_b;
 
             // Extract substrings as strings
-            let substr_a: String = v1[start_a..i].iter().collect();
-            let substr_b: String = v2[start_b..j].iter().collect();
+            let substr_a: String = source_chars[start_a..i].iter().collect();
+            let substr_b: String = target_chars[start_b..j].iter().collect();
 
             // Only check if this substitution exists in the cost map
             if cost_map.has_substitution(&substr_a, &substr_b) {
@@ -200,7 +224,7 @@ mod test {
     #[test]
     fn test_custom_levenshtein_with_custom_map() {
         let cost_map = OcrCostMap::new(
-            HashMap::from([(("a".to_string(), "b".to_string()), 0.1)]),
+            SubstitutionCostMap::from([(("a".to_string(), "b".to_string()), 0.1)]),
             1.0,
             true,
         );
@@ -215,7 +239,7 @@ mod test {
     #[test]
     fn test_multi_character_substitutions() {
         let cost_map = OcrCostMap::new(
-            HashMap::from([(("h".to_string(), "In".to_string()), 0.2)]),
+            SubstitutionCostMap::from([(("h".to_string(), "In".to_string()), 0.2)]),
             1.0,
             true,
         );
@@ -237,7 +261,7 @@ mod test {
 
     #[test]
     fn test_multiple_substitutions_in_same_string() {
-        let mut custom_costs = HashMap::new();
+        let mut custom_costs = SubstitutionCostMap::new();
         custom_costs.insert(("h".to_string(), "In".to_string()), 0.2);
         custom_costs.insert(("l".to_string(), "1".to_string()), 0.3);
         let cost_map = OcrCostMap::new(custom_costs, 1.0, true);
@@ -252,7 +276,7 @@ mod test {
 
     #[test]
     fn test_overlapping_substitution_patterns() {
-        let mut custom_costs = HashMap::new();
+        let mut custom_costs = SubstitutionCostMap::new();
         custom_costs.insert(("rn".to_string(), "m".to_string()), 0.1); // common OCR confusion
         custom_costs.insert(("cl".to_string(), "d".to_string()), 0.2); // another common confusion
         let cost_map = OcrCostMap::new(custom_costs, 1.0, true);
@@ -276,7 +300,7 @@ mod test {
     fn test_asymmetric_costs() {
         // Sometimes OCR errors aren't symmetric - going from reference to OCR
         // might have different likelihood than going from OCR to reference
-        let mut custom_costs = HashMap::new();
+        let mut custom_costs = SubstitutionCostMap::new();
         custom_costs.insert(("0".to_string(), "O".to_string()), 0.1); // 0->O is common
         custom_costs.insert(("O".to_string(), "0".to_string()), 0.5); // O->0 is less common
         let cost_map = OcrCostMap::new(custom_costs, 1.0, false); // asymmetric costs
@@ -298,7 +322,7 @@ mod test {
 
     #[test]
     fn test_substitution_at_word_boundaries() {
-        let mut custom_costs = HashMap::new();
+        let mut custom_costs = SubstitutionCostMap::new();
         custom_costs.insert(("rn".to_string(), "m".to_string()), 0.1);
         let cost_map = OcrCostMap::new(custom_costs, 1.0, true);
 
@@ -320,7 +344,40 @@ mod test {
     #[test]
     fn test_empty_cost_map() {
         // Create a cost map with no custom substitution costs
-        let cost_map = OcrCostMap::new(HashMap::new(), 1.0, true);
+        let cost_map = OcrCostMap::new(SubstitutionCostMap::new(), 1.0, true);
+
+        // Test that "h" -> "In" costs 2.0 (1 deletion + 1 substitution) since there's no custom mapping
+        assert_approx_eq(
+            custom_levenshtein_distance_with_cost_map("h", "In", &cost_map, 1),
+            2.0,
+            1e-9,
+        );
+
+        assert_approx_eq(
+            custom_levenshtein_distance_with_cost_map("kitten", "sitting", &cost_map, 1),
+            3.0,
+            1e-9,
+        );
+
+        // Test with non-ASCII characters - correct distance is 4
+        // café -> coffee:
+        // - Replace 'a' with 'o' (1)
+        // - Keep 'f' (0)
+        // - Replace 'é' with 'f' (1)
+        // - Insert 'e' (1)
+        // - Insert 'e' (1)
+        // Total: 4 operations
+        assert_approx_eq(
+            custom_levenshtein_distance_with_cost_map("café", "coffee", &cost_map, 1),
+            4.0, // 4 edits required
+            1e-9,
+        );
+    }
+
+    #[test]
+    fn test_default_cost_map() {
+        // Create a cost map with no custom substitution costs
+        let cost_map = OcrCostMap::default();
 
         // Test that "h" -> "In" costs 2.0 (1 deletion + 1 substitution) since there's no custom mapping
         assert_approx_eq(

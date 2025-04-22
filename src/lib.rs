@@ -1,7 +1,9 @@
 mod longest_tokens;
+mod types;
 mod weighted_levenshtein;
 
 pub use longest_tokens::longest_key_string_length;
+pub use types::*;
 pub use weighted_levenshtein::{custom_levenshtein_distance_with_cost_map, OcrCostMap};
 
 #[cfg(feature = "python")]
