@@ -112,3 +112,17 @@ def test_negative_default_cost() -> None:
         ValueError, match=f"default_cost must be non-negative, got value: {invalid_cost:.0f}"
     ):
         weighted_levenshtein_distance("a", "b", default_cost=invalid_cost)
+
+
+@pytest.mark.parametrize(
+    ["s1", "s2", "cost_map_insert_delete", "expected"],
+    [
+        ("ABD", "ABCD", {}, 1), # without cost map
+        ("ABD", "ABCD", {"C": 0.1}, 0.1), # with cost map
+        ("ACEG", "ABCDEFG!", {"B": 0.1, "D": 0.2, "!": 0.0}, 1.3), # muliple insertions with different costs (B,D,F,!)
+    ],
+)
+def test_weighted_levenshtein_distance_with_insertion_and_deletion(
+    s1: str, s2: str, cost_map_insert_delete: dict[str, float], expected: float
+) -> None:
+    assert weighted_levenshtein_distance(s1, s2, cost_map_insert_delete=cost_map_insert_delete) == pytest.approx(expected)
