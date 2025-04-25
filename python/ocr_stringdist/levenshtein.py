@@ -9,7 +9,7 @@ def weighted_levenshtein_distance(
     s2: str,
     /,
     cost_map: Optional[dict[tuple[str, str], float]] = None,
-    cost_map_insert_delete: Optional[dict[tuple[str, str], float]] = None,
+    cost_map_insert_delete: Optional[dict[str, float]] = None,
     *,
     symmetric: bool = True,
     default_cost: float = 1.0,
