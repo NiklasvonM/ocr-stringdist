@@ -3,8 +3,6 @@
 API Reference
 =============
 
-This page contains the auto-generated API reference documentation.
-
 .. automodule:: ocr_stringdist.levenshtein
    :members:
    :undoc-members:

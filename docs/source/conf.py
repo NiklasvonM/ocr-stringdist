@@ -4,6 +4,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 
+import importlib.metadata
 import os
 import sys
 
@@ -17,6 +18,8 @@ sys.path.insert(0, os.path.abspath("../../python"))
 project = "OCR-StringDist"
 copyright = "2025, Niklas von Moers"
 author = "Niklas von Moers"
+release = importlib.metadata.version("ocr_stringdist")
+version = release
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
