@@ -19,7 +19,9 @@ def test_find_best_candidate(
     expected_distance: float,
 ) -> None:
     actual_match, actual_distance = find_best_candidate(
-        s, candidates, lambda s1, s2: weighted_levenshtein_distance(s1, s2, cost_map=cost_map)
+        s,
+        candidates,
+        lambda s1, s2: weighted_levenshtein_distance(s1, s2, substitution_costs=cost_map),
     )
     assert actual_match == expected_match
     assert actual_distance == pytest.approx(expected_distance)
