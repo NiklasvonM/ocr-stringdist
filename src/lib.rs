@@ -1,10 +1,10 @@
-mod longest_tokens;
+mod cost_map;
 mod types;
 mod weighted_levenshtein;
 
-pub use longest_tokens::longest_key_string_length;
+pub use cost_map::CostMap;
 pub use types::*;
-pub use weighted_levenshtein::{custom_levenshtein_distance_with_cost_map, OcrCostMap};
+pub use weighted_levenshtein::custom_levenshtein_distance_with_cost_maps;
 
 #[cfg(feature = "python")]
 mod rust_stringdist;

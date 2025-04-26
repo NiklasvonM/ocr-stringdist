@@ -31,13 +31,13 @@ ic(
     weighted_levenshtein_distance(
         "ABCDE",
         "XBCDE",
-        cost_map={},
-        default_cost=0.8,  # Lower default substitution cost (default is 1.0)
+        substitution_costs={},
+        default_substitution_cost=0.8,  # Lower default substitution cost (default is 1.0)
     )
 )
 
-ic(weighted_levenshtein_distance("A", "B", {("A", "B"): 0.0}, symmetric=False))
-ic(weighted_levenshtein_distance("A", "B", {("B", "A"): 0.0}, symmetric=False))
+ic(weighted_levenshtein_distance("A", "B", {("A", "B"): 0.0}, symmetric_substitution=False))
+ic(weighted_levenshtein_distance("A", "B", {("B", "A"): 0.0}, symmetric_substitution=False))
 
 ic(
     find_best_candidate(
