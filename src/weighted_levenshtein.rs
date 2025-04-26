@@ -10,33 +10,13 @@ pub fn custom_levenshtein_distance_with_cost_maps(
     insertion_cost_map: &CostMap<SingleTokenKey>,
     deletion_cost_map: &CostMap<SingleTokenKey>,
 ) -> f64 {
+    // Early exit if strings are identical
     if source == target {
         return 0.0;
     }
 
     let len_source = source.chars().count();
     let len_target = target.chars().count();
-
-    // Handle empty strings using potentially multi-character costs
-    if len_source == 0 {
-        // Cost of inserting the entire target string
-        // Note: This simple loop might not find the optimal path if multi-char insertions
-        // are cheaper than summed single char insertions.
-        // The DP table initialization below handles this correctly for the main algorithm.
-        // A more robust empty-string handling could use a simplified 1D DP here.
-        // For now, we initialize the DP table and return dp[0][len_target].
-        if len_target == 0 {
-            return 0.0;
-        } // "" vs "" handled above, but for clarity.
-    }
-    if len_target == 0 {
-        // Cost of deleting the entire source string
-        // Similar note as above regarding optimality vs simple loops.
-        // We rely on the DP table initialization.
-        if len_source == 0 {
-            return 0.0;
-        }
-    }
 
     // Convert to character vectors for correct Unicode handling
     let source_chars: Vec<char> = source.chars().collect();
@@ -93,6 +73,7 @@ pub fn custom_levenshtein_distance_with_cost_maps(
     }
 
     // Handle the empty string cases using the initialized DP table values
+    // (If source was empty, cost is inserting target; if target was empty, cost is deleting source)
     if len_source == 0 {
         return dp[0][len_target];
     }
@@ -125,7 +106,6 @@ pub fn custom_levenshtein_distance_with_cost_maps(
             dp[i][j] = deletion.min(insertion).min(char_substitution);
 
             // Consider multi-character substitutions ending at (i, j)
-            // Note: This check could potentially overwrite the single-char sub if cheaper
             check_multi_char_substitutions(
                 i,
                 j,
@@ -286,7 +266,7 @@ mod test {
     }
 
     #[test]
-    fn test_custom_levenshtein_with_custom_maps() {
+    fn test_custom_levenshtein_with_custom_sub_map() {
         let (_, ins_map, del_map) = create_default_cost_maps();
 
         // Create a custom substitution map with specific a->b cost
@@ -304,7 +284,7 @@ mod test {
     }
 
     #[test]
-    fn test_custom_levenshtein_with_custom_insertion_deletion() {
+    fn test_mixed_custom_costs() {
         // Create cost maps
         let sub_map = CostMap::<SubstitutionKey>::new(
             SubstitutionCostMap::from([(("a".to_string(), "b".to_string()), 0.1)]),
@@ -318,22 +298,21 @@ mod test {
         let del_map =
             CostMap::<SingleTokenKey>::new(SingleTokenCostMap::from([("y".to_string(), 0.4)]), 1.0);
 
-        // Test with all three maps
+        // Test with all three maps: delete 'y' (0.4) + insert 'x' (0.3)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("aby", "abx", &sub_map, &ins_map, &del_map),
-            0.7, // delete 'y' (0.4) + insert 'x' (0.3)
+            0.7,
             1e-9,
         );
 
-        // Test substitution
+        // Test substitution: substitute 'a' with 'b' (0.1)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("abc", "bbc", &sub_map, &ins_map, &del_map),
-            0.1, // substitute 'a' with 'b' (0.1)
+            0.1,
             1e-9,
         );
     }
 
-    // Original tests for backwards compatibility
     #[test]
     fn test_multi_character_substitutions() {
         let (_, ins_map, del_map) = create_default_cost_maps();
@@ -412,8 +391,7 @@ mod test {
     fn test_asymmetric_costs() {
         let (_, ins_map, del_map) = create_default_cost_maps();
 
-        // Sometimes OCR errors aren't symmetric - going from reference to OCR
-        // might have different likelihood than going from OCR to reference
+        // Sometimes OCR errors aren't symmetric
         let mut custom_costs = SubstitutionCostMap::new();
         custom_costs.insert(("0".to_string(), "O".to_string()), 0.1); // 0->O is common
         custom_costs.insert(("O".to_string(), "0".to_string()), 0.5); // O->0 is less common
@@ -462,60 +440,72 @@ mod test {
     }
 
     #[test]
-    fn test_custom_insertion_deletion_costs() {
+    fn test_specific_custom_ins_del_costs() {
         let sub_map = CostMap::<SubstitutionKey>::new(SubstitutionCostMap::new(), 1.0, true);
 
         // Test with custom insertion cost
-        let ins_map = CostMap::<SingleTokenKey>::new(
+        let ins_map_custom = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("a".to_string(), 0.2), ("b".to_string(), 0.3)]),
             1.0,
         );
-        let del_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
+        let del_map_default = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
 
-        // Test insertion with custom cost
+        // Test insertion with custom cost: Insert 'a' with cost 0.2
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_maps("bc", "abc", &sub_map, &ins_map, &del_map),
-            0.2, // Insert 'a' with cost 0.2
+            custom_levenshtein_distance_with_cost_maps(
+                "bc",
+                "abc",
+                &sub_map,
+                &ins_map_custom,
+                &del_map_default,
+            ),
+            0.2,
             1e-9,
         );
 
         // Test with custom deletion cost
-        let ins_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
-        let del_map = CostMap::<SingleTokenKey>::new(
+        let ins_map_default = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
+        let del_map_custom = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("a".to_string(), 0.4), ("c".to_string(), 0.5)]),
             1.0,
         );
 
-        // Test deletion with custom cost
+        // Test deletion with custom cost: Delete 'a' with cost 0.4
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_maps("abc", "bc", &sub_map, &ins_map, &del_map),
-            0.4, // Delete 'a' with cost 0.4
+            custom_levenshtein_distance_with_cost_maps(
+                "abc",
+                "bc",
+                &sub_map,
+                &ins_map_default,
+                &del_map_custom,
+            ),
+            0.4,
             1e-9,
         );
 
-        // Test with both custom insertion and deletion costs
-        let ins_map =
+        // Test with both custom insertion and deletion costs, forcing ins/del
+        let ins_map_force =
             CostMap::<SingleTokenKey>::new(SingleTokenCostMap::from([("b".to_string(), 0.3)]), 1.0);
-        let del_map =
+        let del_map_force =
             CostMap::<SingleTokenKey>::new(SingleTokenCostMap::from([("x".to_string(), 0.5)]), 1.0);
 
         // Create a substitution map with very high cost to force deletion+insertion
-        let high_cost_map = CostMap::<SubstitutionKey>::new(
+        let high_cost_sub_map = CostMap::<SubstitutionKey>::new(
             SubstitutionCostMap::new(), // Empty map uses default cost
             2.0, // High default cost to ensure deletion+insertion is preferred
             true,
         );
 
-        // Test combined operations - now with a higher substitution cost
+        // Test combined operations: Delete 'x' (0.5) + insert 'b' (0.3)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "axc",
                 "abc",
-                &high_cost_map,
-                &ins_map,
-                &del_map,
+                &high_cost_sub_map,
+                &ins_map_force,
+                &del_map_force,
             ),
-            0.8, // Delete 'x' (0.5) + insert 'b' (0.3)
+            0.8,
             1e-9,
         );
     }
@@ -524,28 +514,28 @@ mod test {
     fn test_edge_cases() {
         let (sub_map, ins_map, del_map) = create_default_cost_maps();
 
-        // Test empty strings
+        // Test empty strings: Empty strings have zero distance
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("", "", &sub_map, &ins_map, &del_map),
-            0.0, // Empty strings have zero distance
+            0.0,
             1e-9,
         );
 
-        // Test source empty, target not empty
+        // Test source empty, target not empty: Insert 'a', 'b', 'c' with default cost 1.0 each
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("", "abc", &sub_map, &ins_map, &del_map),
-            3.0, // Insert 'a', 'b', 'c' with default cost 1.0 each
+            3.0,
             1e-9,
         );
 
-        // Test source not empty, target empty
+        // Test source not empty, target empty: Delete 'a', 'b', 'c' with default cost 1.0 each
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("abc", "", &sub_map, &ins_map, &del_map),
-            3.0, // Delete 'a', 'b', 'c' with default cost 1.0 each
+            3.0,
             1e-9,
         );
 
-        // Test with custom insertion costs for empty target
+        // Test with custom insertion costs for empty source
         let custom_ins_map = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([
                 ("a".to_string(), 0.2),
@@ -555,7 +545,7 @@ mod test {
             1.0,
         );
 
-        // Test with custom insertion costs
+        // Test with custom insertion costs: Insert 'a' (0.2) + 'b' (0.3) + 'c' (0.4)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "",
@@ -564,11 +554,11 @@ mod test {
                 &custom_ins_map,
                 &del_map,
             ),
-            0.9, // Insert 'a' (0.2) + 'b' (0.3) + 'c' (0.4)
+            0.9,
             1e-9,
         );
 
-        // Test with custom deletion costs for empty source
+        // Test with custom deletion costs for empty target
         let custom_del_map = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([
                 ("a".to_string(), 0.5),
@@ -578,7 +568,7 @@ mod test {
             1.0,
         );
 
-        // Test with custom deletion costs
+        // Test with custom deletion costs: Delete 'a' (0.5) + 'b' (0.6) + 'c' (0.7)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "abc",
@@ -587,13 +577,13 @@ mod test {
                 &ins_map,
                 &custom_del_map,
             ),
-            1.8, // Delete 'a' (0.5) + 'b' (0.6) + 'c' (0.7)
+            1.8,
             1e-9,
         );
     }
 
     #[test]
-    fn test_mixed_operations() {
+    fn test_overall_mixed_operations() {
         // Create maps with various custom costs
         let sub_map = CostMap::<SubstitutionKey>::new(
             SubstitutionCostMap::from([
@@ -614,12 +604,12 @@ mod test {
             1.0,
         );
 
-        // Test with a mix of operations
+        // Test with a mix of operations: Sub 'a'→'A' (0.1) + Sub 'b'→'B' (0.2) + delete 'm' (0.5) + delete 'n' (0.6) + insert 'x' (0.3) + insert 'y' (0.4)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "abmn", "ABxy", &sub_map, &ins_map, &del_map,
             ),
-            2.1, // Substitute 'a'→'A' (0.1) + 'b'→'B' (0.2) + delete 'm' (0.5) + delete 'n' (0.6) + insert 'x' (0.3) + insert 'y' (0.4)
+            2.1,
             1e-9,
         );
     }
@@ -628,92 +618,107 @@ mod test {
     fn test_unicode_handling() {
         let (sub_map, ins_map, del_map) = create_default_cost_maps();
 
-        // Test with Unicode characters
+        // Test with Unicode characters: Substitute 'é' with 'e' with default cost 1.0
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "café", "cafe", &sub_map, &ins_map, &del_map,
             ),
-            1.0, // Substitute 'é' with 'e' with default cost 1.0
+            1.0,
             1e-9,
         );
 
-        // Test with emoji
+        // Test with emoji: Delete ' ' and '😊' with default cost 1.0 each
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("hi 😊", "hi", &sub_map, &ins_map, &del_map),
-            2.0, // Delete ' ' and '😊' with default cost 1.0 each
+            2.0,
             1e-9,
         );
 
         // Test with custom costs for Unicode
-        let ins_map = CostMap::<SingleTokenKey>::new(
+        let sub_map_unicode = CostMap::<SubstitutionKey>::new(
+            SubstitutionCostMap::from([(("e".to_string(), "é".to_string()), 0.1)]), // Custom e->é cost
+            1.0,
+            true,
+        );
+        let ins_map_unicode = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("é".to_string(), 0.2), ("😊".to_string(), 0.3)]),
             1.0,
         );
-        let del_map = CostMap::<SingleTokenKey>::new(
+        let del_map_unicode = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("é".to_string(), 0.4), ("😊".to_string(), 0.5)]),
             1.0,
         );
 
-        // Test insertion of Unicode
+        // Test substitution of Unicode with custom cost
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
-                "cafe", "café", &sub_map, &ins_map, &del_map,
+                "cafe",
+                "café",
+                &sub_map_unicode,
+                &ins_map_unicode,
+                &del_map_unicode,
             ),
-            1.0, // Default substitution cost for 'e'->'é'
+            0.1, // Custom substitution cost for 'e'->'é'
             1e-9,
         );
 
-        // Test deletion of Unicode
+        // Test deletion of Unicode with custom cost
         assert_approx_eq(
-            custom_levenshtein_distance_with_cost_maps("hi 😊", "hi", &sub_map, &ins_map, &del_map),
-            1.5, // Delete ' ' (default 1.0) and '😊' (0.5)
+            custom_levenshtein_distance_with_cost_maps(
+                "hi 😊",
+                "hi",
+                &sub_map,
+                &ins_map_unicode,
+                &del_map_unicode,
+            ),
+            1.5, // Delete ' ' (default 1.0) and '😊' (custom 0.5)
             1e-9,
         );
     }
 
     #[test]
-    fn test_multi_character_operations() {
+    fn test_various_multi_char_substitutions() {
         // Test multi-character substitutions with different lengths
         let sub_map = CostMap::<SubstitutionKey>::new(
             SubstitutionCostMap::from([
-                (("th".to_string(), "T".to_string()), 0.2),
-                (("ing".to_string(), "in'".to_string()), 0.3),
-                (("o".to_string(), "ou".to_string()), 0.1),
+                (("th".to_string(), "T".to_string()), 0.2),    // 2 -> 1
+                (("ing".to_string(), "in'".to_string()), 0.3), // 3 -> 3
+                (("o".to_string(), "ou".to_string()), 0.1),    // 1 -> 2
             ]),
             1.0,
             true,
         );
         let (_, ins_map, del_map) = create_default_cost_maps();
 
-        // Test 2-to-1 character substitution
+        // Test 2-to-1 character substitution: Substitute "th" with "T" with cost 0.2
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("this", "Tis", &sub_map, &ins_map, &del_map),
-            0.2, // Substitute "th" with "T" with cost 0.2
+            0.2,
             1e-9,
         );
 
-        // Test 3-to-3 character substitution
+        // Test 3-to-3 character substitution: Substitute "ing" with "in'" with cost 0.3
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "singing", "singin'", &sub_map, &ins_map, &del_map,
             ),
-            0.3, // Substitute "ing" with "in'" with cost 0.3
+            0.3,
             1e-9,
         );
 
-        // Test 1-to-2 character substitution
+        // Test 1-to-2 character substitution: Substitute "o" with "ou" with cost 0.1
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("go", "gou", &sub_map, &ins_map, &del_map),
-            0.1, // Substitute "o" with "ou" with cost 0.1
+            0.1,
             1e-9,
         );
 
-        // Test multiple multi-character substitutions
+        // Test multiple multi-character substitutions: Sub "th"->"T" (0.2) + Sub "ing"->"in'" (0.3)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "thinking", "Tinkin'", &sub_map, &ins_map, &del_map,
             ),
-            0.5, // Substitute "th" with "T" (0.2) + "ing" with "in'" (0.3)
+            0.5,
             1e-9,
         );
     }
@@ -742,64 +747,64 @@ mod test {
             1.0,
         );
 
-        // Test multi-character insertion
+        // Test multi-character insertion: insert 'ab' (0.3)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("x", "xab", &sub_map, &ins_map, &del_map),
-            0.3, // insert 'ab' (0.3)
+            0.3,
             1e-9,
         );
 
-        // Test multi-character deletion
+        // Test multi-character deletion: delete 'cd' (0.4)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("ycd", "y", &sub_map, &ins_map, &del_map),
-            0.4, // delete 'cd' (0.4)
+            0.4,
             1e-9,
         );
 
-        // Test both insertion and deletion
+        // Test both insertion and deletion: delete 'ef' (0.5) + insert 'ab' (0.3)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("aef", "aab", &sub_map, &ins_map, &del_map),
-            0.8, // delete 'ef' (0.5) + insert 'ab' (0.3)
+            0.8,
             1e-9,
         );
 
-        // Test with longer token
+        // Test with longer token insertion: insert 'xyz' (0.2)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "test", "testxyz", &sub_map, &ins_map, &del_map,
             ),
-            0.2, // insert 'xyz' (0.2)
+            0.2,
             1e-9,
         );
 
-        // Test with mixed operations
+        // Test with mixed operations: delete '789' (0.6) + insert 'xyz' (0.2)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "a789b", "axyzb", &sub_map, &ins_map, &del_map,
             ),
-            0.8, // delete '789' (0.6) + insert 'xyz' (0.2)
+            0.8,
             1e-9,
         );
 
-        // Test multi-character deletion "bc" at the beginning of a string
+        // Test multi-character deletion "bc" at the beginning: delete 'bc' (cost 0.35)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("bcd", "d", &sub_map, &ins_map, &del_map),
-            0.35, // delete 'bc' (cost 0.35), then 'd' matches 'd' (cost 0.0)
+            0.35,
             1e-9,
         );
 
-        // Test multi-character insertion "bc" at the beginning of a string
+        // Test multi-character insertion "bc" at the beginning: insert 'bc' (cost 0.25)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps("c", "bcc", &sub_map, &ins_map, &del_map),
-            0.25, // insert 'bc' (cost 0.25), then 'c' matches 'c' (cost 0.0)
+            0.25,
             1e-9,
         );
     }
 
     #[test]
-    fn test_max_token_characters_limit() {
+    fn test_fallback_to_default_costs_when_multi_char_sub_missing() {
         // Create cost maps with multi-character substitutions
-        let sub_map = CostMap::<SubstitutionKey>::new(
+        let sub_map_full = CostMap::<SubstitutionKey>::new(
             SubstitutionCostMap::from([
                 (("abc".to_string(), "xyz".to_string()), 0.1),
                 (("de".to_string(), "uv".to_string()), 0.2),
@@ -807,36 +812,50 @@ mod test {
             1.0,
             true,
         );
-        let (empty_sub_map, ins_map, del_map) = create_default_cost_maps();
-
-        // Test with max_token_characters = 3 (should allow abc->xyz)
-        assert_approx_eq(
-            custom_levenshtein_distance_with_cost_maps(
-                "abcde", "xyzuv", &sub_map, &ins_map, &del_map,
-            ),
-            0.3, // Substitute "abc" with "xyz" (0.1) + "de" with "uv" (0.2)
-            1e-9,
+        // Create map with only the 2-char substitution
+        let sub_map_partial = CostMap::<SubstitutionKey>::new(
+            SubstitutionCostMap::from([(("de".to_string(), "uv".to_string()), 0.2)]),
+            1.0,
+            true,
         );
+        let (sub_map_empty, ins_map, del_map) = create_default_cost_maps();
 
-        // Test with max_token_characters = 2 (should not allow abc->xyz)
-        assert_approx_eq(
-            custom_levenshtein_distance_with_cost_maps(
-                "ab_de", "xyzuv", &sub_map, &ins_map, &del_map,
-            ),
-            3.2, // Cannot do ab_->xyz, so default substitutions for a->x, b->y, _->z (3*1.0) + "de" with "uv" (0.2)
-            1e-9,
-        );
-
-        // Test with max_token_characters = 1 (only single character operations)
+        // Test with full map (allows abc->xyz and de->uv): Sub "abc"->"xyz" (0.1) + Sub "de"->"uv" (0.2)
         assert_approx_eq(
             custom_levenshtein_distance_with_cost_maps(
                 "abcde",
                 "xyzuv",
-                &empty_sub_map,
+                &sub_map_full,
                 &ins_map,
                 &del_map,
             ),
-            5.0, // All single character substitutions with default cost 1.0 each
+            0.3,
+            1e-9,
+        );
+
+        // Test with partial map (does not allow abc->xyz, forces default): Sub a->x(1.0) + b->y(1.0) + c->z(1.0) + Sub "de"->"uv"(0.2)
+        assert_approx_eq(
+            custom_levenshtein_distance_with_cost_maps(
+                "abcde",
+                "xyzuv",
+                &sub_map_partial,
+                &ins_map,
+                &del_map,
+            ),
+            3.2,
+            1e-9,
+        );
+
+        // Test with empty map (only single character default operations): 5 * default sub cost (1.0)
+        assert_approx_eq(
+            custom_levenshtein_distance_with_cost_maps(
+                "abcde",
+                "xyzuv",
+                &sub_map_empty,
+                &ins_map,
+                &del_map,
+            ),
+            5.0,
             1e-9,
         );
     }
@@ -855,25 +874,20 @@ mod test {
         // Target chars representing "abc"
         let target_chars = vec!['a', 'b', 'c'];
 
-        // Initial dp[1][3] = 2.0
-        // After calling check_multi_char_insertions, we should update with
-        // dp[1][1] + cost of "bc" = 0.0 + 0.3 = 0.3 (if "bc" had a cost of 0.3)
-        // But since we only have "ab" in the map, it should remain 2.0
+        // Initial dp[1][3] = 2.0. "bc" is not in the map, so it shouldn't change.
         check_multi_char_insertions(1, 3, &target_chars, &mut dp, &ins_map);
-
-        // dp[1][3] should not change since "bc" is not in the map
-        assert_approx_eq(dp[1][3], 2.0, 1e-9);
+        assert_approx_eq(dp[1][3], 2.0, 1e-9); // Value should remain unchanged
 
         // Now let's check with a matching token
-        // Target chars representing "cab"
+        // Target chars representing "cab", dp[1][3] still 2.0
         let target_chars2 = vec!['c', 'a', 'b'];
+        let mut dp2 = vec![vec![0.0, 1.0, 2.0, 3.0], vec![1.0, 0.0, 1.0, 2.0]]; // Reset dp state
 
-        // Now check_multi_char_insertions for position (1, 3)
-        // This should use dp[1][1] + cost of "ab" = 0.0 + 0.3 = 0.3
-        check_multi_char_insertions(1, 3, &target_chars2, &mut dp, &ins_map);
-
-        // Now dp[1][3] should be updated
-        assert_approx_eq(dp[1][3], 0.3, 1e-9);
+        // Check position (1, 3) for target "cab". Token is "ab".
+        // Should use dp[1][1] + cost("ab") = 0.0 + 0.3 = 0.3
+        // Since 0.3 < dp2[1][3] (which is 2.0), it should update.
+        check_multi_char_insertions(1, 3, &target_chars2, &mut dp2, &ins_map);
+        assert_approx_eq(dp2[1][3], 0.3, 1e-9); // Value should be updated
     }
 
     #[test]
@@ -895,40 +909,27 @@ mod test {
         // Source chars representing "abcd"
         let source_chars = vec!['a', 'b', 'c', 'd'];
 
-        // For debugging, check each part individually
-        println!("Initial dp[3][1] = {}", dp[3][1]);
-        println!("Has key 'bc'? {}", del_map.has_key("bc"));
+        // Check position (3, 1). Current dp[3][1] is 2.0.
+        // Check token "bc" (source_chars[1..3]).
+        // New cost would be dp[1][1] + cost("bc") = 0.0 + 0.4 = 0.4
+        // Since 0.4 < 2.0, dp[3][1] should be updated to 0.4.
+        let token_start = 3 - 2; // current_i = 3, token_len = 2
+        let expected_new_cost = dp[token_start][1] + del_map.get_cost("bc");
 
-        // Check what the substring is when extracted
-        let token_start = 3 - 2; // current_i - token_len
-        let token: String = source_chars[token_start..3].iter().collect();
-        println!("Token at positions {}..{}: '{}'", token_start, 3, token);
-
-        // Calculate the expected new cost
-        let deletion_cost = del_map.get_cost(&token);
-        let expected_new_cost = dp[token_start][1] + deletion_cost;
-        println!(
-            "Expected new cost: dp[{}][1] + {} = {} + {} = {}",
-            token_start, deletion_cost, dp[token_start][1], deletion_cost, expected_new_cost
-        );
-
-        // Now call the function
         check_multi_char_deletions(3, 1, &source_chars, &mut dp, &del_map);
 
-        // Check the updated value
-        println!("Final dp[3][1] = {}", dp[3][1]);
-
         // Check if the function updated the dp value correctly
-        assert_approx_eq(dp[3][1], expected_new_cost, 1e-9);
+        assert_approx_eq(dp[3][1], expected_new_cost, 1e-9); // Should be 0.4
+        assert_approx_eq(dp[3][1], 0.4, 1e-9); // Explicit check
     }
 
     #[test]
-    fn test_empty_cost_maps() {
-        // Tests with empty cost maps
+    fn test_empty_cost_maps_for_helpers() {
+        // Tests helper functions with empty cost maps
         let ins_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
         let del_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
 
-        // Test multi-character operations directly
+        // Test multi-character operations directly on DP state
         let mut dp = vec![
             vec![0.0, 1.0, 2.0],
             vec![1.0, 0.0, 1.0],
@@ -938,17 +939,21 @@ mod test {
         let source_chars = vec!['a', 'b', 'c', 'd'];
         let target_chars = vec!['x', 'y', 'z'];
 
-        // Since the cost maps are empty, these should not modify the dp values
+        // Store original values
+        let original_dp_2_2 = dp[2][2];
+        let original_dp_3_2 = dp[3][2];
+
+        // Since the cost maps are empty, these should not find any multi-char keys and thus not modify dp values
         check_multi_char_insertions(2, 2, &target_chars, &mut dp, &ins_map);
         check_multi_char_deletions(3, 2, &source_chars, &mut dp, &del_map);
 
         // DP values should remain unchanged
-        assert_approx_eq(dp[2][2], 0.0, 1e-9);
-        assert_approx_eq(dp[3][2], 1.0, 1e-9);
+        assert_approx_eq(dp[2][2], original_dp_2_2, 1e-9);
+        assert_approx_eq(dp[3][2], original_dp_3_2, 1e-9);
     }
 
     #[test]
-    fn test_multi_char_operations_directly() {
+    fn test_main_function_with_multi_char_ins_del() {
         // Define source and target strings
         let source = "hello";
         let target = "helloxyz";
@@ -961,14 +966,13 @@ mod test {
         let sub_map = CostMap::<SubstitutionKey>::new(SubstitutionCostMap::new(), 1.0, true);
         let del_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
 
-        // Assert that the distance is calculated correctly
+        // Test multi-char insertion via main function
         let dist = custom_levenshtein_distance_with_cost_maps(
             source, target, &sub_map, &ins_map, &del_map,
         );
+        assert_approx_eq(dist, 0.2, 1e-9); // Should be 0.2 (insert "xyz")
 
-        assert_approx_eq(dist, 0.2, 1e-9); // Should be 0.2 (insert "xyz" with cost 0.2)
-
-        // Now test a multi-character deletion
+        // Now test a multi-character deletion via main function
         let source2 = "helloxyz";
         let target2 = "hello";
 
@@ -977,12 +981,12 @@ mod test {
             SingleTokenCostMap::from([("xyz".to_string(), 0.3)]),
             1.0,
         );
+        // Use default insertion map for this test
+        let ins_map2 = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
 
-        // Assert that the distance is calculated correctly
         let dist2 = custom_levenshtein_distance_with_cost_maps(
-            source2, target2, &sub_map, &ins_map, &del_map2,
+            source2, target2, &sub_map, &ins_map2, &del_map2,
         );
-
-        assert_approx_eq(dist2, 0.3, 1e-9); // Should be 0.3 (delete "xyz" with cost 0.3)
+        assert_approx_eq(dist2, 0.3, 1e-9); // Should be 0.3 (delete "xyz")
     }
 }

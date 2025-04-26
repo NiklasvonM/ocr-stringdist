@@ -448,6 +448,7 @@ def test_negative_default_cost() -> None:
             {"B": 0.1, "D": 0.2, "!": 0.0},
             1.3,
         ),  # muliple insertions with different costs (B,D,F,!)
+        ("", "a", {"a": 0.1}, 0.1),
     ],
 )
 def test_weighted_levenshtein_distance_with_insertion(
