@@ -27,7 +27,64 @@ pub fn custom_levenshtein_distance_with_cost_maps(
     // Create dynamic programming matrix
     let mut dp = vec![vec![0.0; len_target + 1]; len_source + 1];
 
-    // Initialize first row - insertions to make empty string into target prefix
+    // Initialize base cases (first row and column) using helpers
+    initialize_first_row(&mut dp, &target_chars, insertion_cost_map);
+    initialize_first_column(&mut dp, &source_chars, deletion_cost_map);
+
+    // Fill the rest of the dp matrix
+    for i in 1..=len_source {
+        for j in 1..=len_target {
+            // --- Step 1: Calculate cost based on single-character operations ---
+            let source_char_str = source_chars[i - 1].to_string();
+            let target_char_str = target_chars[j - 1].to_string();
+
+            // Cost of deleting source character to reach state (i, j) from (i-1, j)
+            let deletion = dp[i - 1][j] + deletion_cost_map.get_cost(&source_char_str);
+            // Cost of inserting target character to reach state (i, j) from (i, j-1)
+            let insertion = dp[i][j - 1] + insertion_cost_map.get_cost(&target_char_str);
+
+            // Cost of substituting/matching to reach state (i, j) from (i-1, j-1)
+            let char_sub_cost = if source_chars[i - 1] == target_chars[j - 1] {
+                0.0 // Characters match
+            } else {
+                // Characters differ, get substitution cost
+                substitution_cost_map.get_cost(&source_char_str, &target_char_str)
+            };
+            let char_substitution = dp[i - 1][j - 1] + char_sub_cost;
+
+            // Initialize current cell with the minimum of standard single-character operations
+            dp[i][j] = deletion.min(insertion).min(char_substitution);
+
+            // --- Step 2: Check if cheaper multi-character operations exist ---
+            // These functions will update dp[i][j] if a lower cost is found
+            check_multi_char_substitutions(
+                i,
+                j,
+                &source_chars,
+                &target_chars,
+                &mut dp,
+                substitution_cost_map,
+            );
+            check_multi_char_insertions(i, j, &target_chars, &mut dp, insertion_cost_map);
+            check_multi_char_deletions(i, j, &source_chars, &mut dp, deletion_cost_map);
+        }
+    }
+
+    // The final distance is in the bottom-right corner
+    dp[len_source][len_target]
+}
+
+/// Initializes the first row of the DP matrix (insertions to make empty string into target prefix).
+fn initialize_first_row(
+    dp: &mut [Vec<f64>],
+    target_chars: &[char],
+    insertion_cost_map: &CostMap<SingleTokenKey>,
+) {
+    let len_target = target_chars.len();
+    if len_target == 0 {
+        return;
+    } // Nothing to initialize if target is empty
+
     dp[0][0] = 0.0;
     for j in 1..=len_target {
         // Start with single character insertion cost
@@ -50,8 +107,20 @@ pub fn custom_levenshtein_distance_with_cost_maps(
             }
         }
     }
+}
 
-    // Initialize first column - deletions to make source prefix into empty string
+/// Initializes the first column of the DP matrix (deletions to make source prefix into empty string).
+fn initialize_first_column(
+    dp: &mut [Vec<f64>],
+    source_chars: &[char],
+    deletion_cost_map: &CostMap<SingleTokenKey>,
+) {
+    let len_source = source_chars.len();
+    if len_source == 0 {
+        return;
+    } // Nothing to initialize if source is empty
+
+    dp[0][0] = 0.0; // Already set, but ensures correctness if called independently
     for i in 1..=len_source {
         // Start with single character deletion cost
         let char_str = source_chars[i - 1].to_string();
@@ -73,59 +142,6 @@ pub fn custom_levenshtein_distance_with_cost_maps(
             }
         }
     }
-
-    // Handle the empty string cases using the initialized DP table values
-    // (If source was empty, cost is inserting target; if target was empty, cost is deleting source)
-    if len_source == 0 {
-        return dp[0][len_target];
-    }
-    if len_target == 0 {
-        return dp[len_source][0];
-    }
-
-    // Fill the rest of the dp matrix
-    for i in 1..=len_source {
-        for j in 1..=len_target {
-            // Standard Levenshtein operations with custom costs (single character)
-            let source_char_str = source_chars[i - 1].to_string();
-            let target_char_str = target_chars[j - 1].to_string();
-
-            let deletion_cost = deletion_cost_map.get_cost(&source_char_str);
-            let insertion_cost = insertion_cost_map.get_cost(&target_char_str);
-
-            let deletion = dp[i - 1][j] + deletion_cost;
-            let insertion = dp[i][j - 1] + insertion_cost;
-
-            // Single character substitution or match
-            let char_sub_cost = if source_chars[i - 1] == target_chars[j - 1] {
-                0.0
-            } else {
-                substitution_cost_map.get_cost(&source_char_str, &target_char_str)
-            };
-            let char_substitution = dp[i - 1][j - 1] + char_sub_cost;
-
-            // Initialize current cell with the minimum of standard single-character operations
-            dp[i][j] = deletion.min(insertion).min(char_substitution);
-
-            // Consider multi-character substitutions ending at (i, j)
-            check_multi_char_substitutions(
-                i,
-                j,
-                &source_chars,
-                &target_chars,
-                &mut dp,
-                substitution_cost_map,
-            );
-
-            // Consider multi-character insertions ending at j
-            check_multi_char_insertions(i, j, &target_chars, &mut dp, insertion_cost_map);
-
-            // Consider multi-character deletions ending at i
-            check_multi_char_deletions(i, j, &source_chars, &mut dp, deletion_cost_map);
-        }
-    }
-
-    dp[len_source][len_target]
 }
 
 /// Helper function to check multi-character substitutions for the Levenshtein algorithm
@@ -149,18 +165,15 @@ fn check_multi_char_substitutions(
                 continue;
             }
 
-            // Calculate substring start indices
             let source_start = current_i - source_len;
             let target_start = current_j - target_len;
 
-            // Extract substrings
             let source_substr: String = source_chars[source_start..current_i].iter().collect();
             let target_substr: String = target_chars[target_start..current_j].iter().collect();
 
             // Check if a custom cost exists for this specific substitution pair
             if cost_map.has_key(&source_substr, &target_substr) {
                 let sub_cost = cost_map.get_cost(&source_substr, &target_substr);
-                // Calculate cost: cost to reach previous state + substitution cost
                 let new_cost = dp[source_start][target_start] + sub_cost;
 
                 // Update dp table if this path is cheaper
@@ -180,25 +193,17 @@ fn check_multi_char_insertions(
     dp: &mut [Vec<f64>],
     cost_map: &CostMap<SingleTokenKey>,
 ) {
-    // Determine the maximum insertion length to check
     let max_len = cost_map.max_token_length.min(current_j);
 
-    // Check multi-character insertions of length 2 up to max_len
-    // (Length 1 is handled by the standard insertion operation)
+    // Length 1 is handled by the standard insertion operation
     for token_len in 2..=max_len {
-        // Calculate token start index
         let token_start = current_j - token_len;
-
-        // Extract token string
         let token: String = target_chars[token_start..current_j].iter().collect();
 
-        // Check if a custom cost exists for inserting this token
         if cost_map.has_key(&token) {
             let insertion_cost = cost_map.get_cost(&token);
-            // Calculate cost: cost to reach state before insertion + insertion cost
             let new_cost = dp[current_i][token_start] + insertion_cost;
 
-            // Update dp table if this path is cheaper
             if new_cost < dp[current_i][current_j] {
                 dp[current_i][current_j] = new_cost;
             }
@@ -214,22 +219,15 @@ fn check_multi_char_deletions(
     dp: &mut [Vec<f64>],
     cost_map: &CostMap<SingleTokenKey>,
 ) {
-    // Determine the maximum deletion length to check
     let max_len = cost_map.max_token_length.min(current_i);
 
-    // Check multi-character deletions of length 2 up to max_len
-    // (Length 1 is handled by the standard deletion operation)
+    // Length 1 is handled by the standard deletion operation
     for token_len in 2..=max_len {
-        // Calculate token start index
         let token_start = current_i - token_len;
-
-        // Extract token string
         let token: String = source_chars[token_start..current_i].iter().collect();
 
-        // Check if a custom cost exists for deleting this token
         if cost_map.has_key(&token) {
             let deletion_cost = cost_map.get_cost(&token);
-            // Calculate cost: cost to reach state before deletion + deletion cost
             let new_cost = dp[token_start][current_j] + deletion_cost;
 
             // Update dp table if this path is cheaper
