@@ -22,6 +22,8 @@ pub fn custom_levenshtein_distance_with_cost_maps(
     let source_chars: Vec<char> = source.chars().collect();
     let target_chars: Vec<char> = target.chars().collect();
 
+    // The following algorithm is a modification of the Wagner-Fischer algorithm.
+
     // Create dynamic programming matrix
     let mut dp = vec![vec![0.0; len_target + 1]; len_source + 1];
 
