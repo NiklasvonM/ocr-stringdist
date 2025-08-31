@@ -1,6 +1,6 @@
 [package]
 name = "ocr_stringdist"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "String distances considering OCR errors."
 authors = ["Niklas von Moers <niklasvmoers@protonmail.com>"]
