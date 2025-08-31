@@ -30,6 +30,7 @@ extensions: list[str] = [
     "sphinx.ext.intersphinx",  # Link to other projects' documentation
     "sphinx.ext.viewcode",  # Add links to source code
     "sphinx_mdinclude",  # Include Markdown
+    "sphinx_copybutton",  # Add "copy" button to code blocks
 ]
 
 templates_path = ["_templates"]
