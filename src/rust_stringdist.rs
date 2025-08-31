@@ -1,8 +1,8 @@
 use crate::cost_map::CostMap;
 use crate::explanation::EditOperation;
 use crate::types::{SingleTokenKey, SubstitutionKey};
-use crate::weighted_levenshtein::custom_levenshtein_distance_with_cost_maps as _weighted_lev_with_maps;
-use crate::weighted_levenshtein::explain_custom_levenshtein_distance;
+use crate::weighted_levenshtein::custom_levenshtein_distance_with_cost_maps as calculate_core;
+use crate::weighted_levenshtein::explain_custom_levenshtein_distance as explain_core;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -13,6 +13,7 @@ impl<'py> IntoPyObject<'py> for EditOperation {
     type Output = Bound<'py, Self::Target>;
     type Error = pyo3::PyErr;
 
+    /// Converts the `EditOperation` into a Python tuple
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self {
             EditOperation::Substitute {
@@ -28,6 +29,7 @@ impl<'py> IntoPyObject<'py> for EditOperation {
     }
 }
 
+/// Facade between the Python interface and the core algorithm implementation.
 struct LevenshteinCalculator {
     substitution_cost_map: CostMap<SubstitutionKey>,
     insertion_cost_map: CostMap<SingleTokenKey>,
@@ -68,7 +70,7 @@ impl LevenshteinCalculator {
     }
 
     fn distance(&self, a: &str, b: &str) -> f64 {
-        _weighted_lev_with_maps(
+        calculate_core(
             a,
             b,
             &self.substitution_cost_map,
@@ -78,7 +80,7 @@ impl LevenshteinCalculator {
     }
 
     fn explain(&self, a: &str, b: &str) -> Vec<EditOperation> {
-        explain_custom_levenshtein_distance(
+        explain_core(
             a,
             b,
             &self.substitution_cost_map,
