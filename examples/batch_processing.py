@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example demonstrating the usage of the batch processing functions from ocr_stringdist.
+Example demonstrating the usage of the batch processing functions.
 """
 
 import time
@@ -28,9 +28,11 @@ def compare_methods() -> None:
     print("\nSingle string against multiple candidates:")
     print("-" * 50)
 
+    weighted_levenshtein = osd.WeightedLevenshtein()
+
     # Standard loop approach
     _, time_loop = benchmark(
-        lambda: [osd.weighted_levenshtein_distance(source, cand) for cand in candidates]
+        lambda: [weighted_levenshtein.distance(source, cand) for cand in candidates]
     )
     print(
         f"Loop of single calls: {time_loop:.6f} seconds "
@@ -38,7 +40,7 @@ def compare_methods() -> None:
     )
 
     # Batch approach
-    _, time_batch = benchmark(osd.batch_weighted_levenshtein_distance, source, candidates)
+    _, time_batch = benchmark(weighted_levenshtein.batch_distance, source, candidates)
     print(
         f"Batch function: {time_batch:.6f} seconds "
         f"({1000 * time_batch / len(candidates):.6f}ms each)"
@@ -47,7 +49,6 @@ def compare_methods() -> None:
 
 
 def main() -> None:
-    """Main function."""
     print("Demonstrating batch processing functions from ocr_stringdist\n")
 
     # Run the benchmarks

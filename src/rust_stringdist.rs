@@ -9,7 +9,6 @@ use pyo3::types::{PyDict, PyNone};
 use rayon::prelude::*;
 
 impl<'py> IntoPyObject<'py> for EditOperation {
-    // We return a generic PyAny because the actual object is a tuple.
     type Target = PyAny;
     type Output = Bound<'py, Self::Target>;
     type Error = pyo3::PyErr;

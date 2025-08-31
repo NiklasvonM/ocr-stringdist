@@ -3,10 +3,14 @@
 API Reference
 =============
 
-.. automodule:: ocr_stringdist.levenshtein
+.. autoclass:: ocr_stringdist.WeightedLevenshtein
    :members:
-   :undoc-members:
-   :show-inheritance:
+   :noindex:
+   :exclude-members: __repr__, __str__
+
+.. autofunction:: ocr_stringdist.weighted_levenshtein_distance
+.. autofunction:: ocr_stringdist.batch_weighted_levenshtein_distance
+.. autofunction:: ocr_stringdist.explain_weighted_levenshtein
 
 .. automodule:: ocr_stringdist.matching
    :members:

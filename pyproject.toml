@@ -33,6 +33,7 @@ dev = [
 ]
 docs = [
     "sphinx>=7.4.7",
+    "sphinx-copybutton>=0.5.2",
     "sphinx-mdinclude>=0.6.2",
     "sphinx-rtd-theme>=3.0.2",
 ]

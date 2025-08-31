@@ -1,7 +1,7 @@
-from ocr_stringdist import weighted_levenshtein_path
+from ocr_stringdist import explain_weighted_levenshtein
 
 print(
-    weighted_levenshtein_path(
+    explain_weighted_levenshtein(
         "Churn Buckets",
         "Chum Bucket",
         substitution_costs={("rn", "m"): 0.5},
