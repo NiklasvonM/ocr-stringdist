@@ -1,8 +1,10 @@
 use crate::cost_map::CostMap;
+use crate::explanation::{EditOperation, Predecessor};
 use crate::types::{SingleTokenKey, SubstitutionKey};
 
-/// Calculates custom Levenshtein distance between two strings using provided cost maps.
-/// This implementation considers multi-character insertions, deletions, and substitutions.
+// --- Public Functions ---
+
+/// Calculates custom Levenshtein distance. This is the high-performance, distance-only public API.
 pub fn custom_levenshtein_distance_with_cost_maps(
     source: &str,
     target: &str,
@@ -17,92 +19,231 @@ pub fn custom_levenshtein_distance_with_cost_maps(
 
     let len_source = source.chars().count();
     let len_target = target.chars().count();
-
-    // Convert to character vectors for correct Unicode handling
     let source_chars: Vec<char> = source.chars().collect();
     let target_chars: Vec<char> = target.chars().collect();
 
-    // The following algorithm is a modification of the Wagner-Fischer algorithm.
+    // Call the core logic with a no-op recorder.
+    let dp = _levenshtein_core(
+        &source_chars,
+        &target_chars,
+        substitution_cost_map,
+        insertion_cost_map,
+        deletion_cost_map,
+        &mut |_i, _j, _op| {}, // This closure does nothing.
+    );
 
-    // Create dynamic programming matrix
+    dp[len_source][len_target]
+}
+
+/// Provides a step-by-step path of operations.
+pub fn explain_custom_levenshtein_distance(
+    source: &str,
+    target: &str,
+    substitution_cost_map: &CostMap<SubstitutionKey>,
+    insertion_cost_map: &CostMap<SingleTokenKey>,
+    deletion_cost_map: &CostMap<SingleTokenKey>,
+) -> Vec<EditOperation> {
+    if source == target {
+        return Vec::new();
+    }
+
+    let len_source = source.chars().count();
+    let len_target = target.chars().count();
+    let source_chars: Vec<char> = source.chars().collect();
+    let target_chars: Vec<char> = target.chars().collect();
+
+    let mut predecessors = vec![vec![Predecessor::None; len_target + 1]; len_source + 1];
+
+    // Call the core logic with a recorder that populates the predecessors matrix.
+    // This allows reuse of the entire DP calculation logic.
+    _levenshtein_core(
+        &source_chars,
+        &target_chars,
+        substitution_cost_map,
+        insertion_cost_map,
+        deletion_cost_map,
+        &mut |i, j, op| predecessors[i][j] = op,
+    );
+
+    _backtrack(
+        &predecessors,
+        &source_chars,
+        &target_chars,
+        substitution_cost_map,
+        insertion_cost_map,
+        deletion_cost_map,
+    )
+}
+
+// --- Core Logic ---
+
+/// Core function for the Levenshtein DP algorithm.
+/// Implements a modification of the Wagner-Fischer algorithm.
+fn _levenshtein_core<F>(
+    source_chars: &[char],
+    target_chars: &[char],
+    substitution_cost_map: &CostMap<SubstitutionKey>,
+    insertion_cost_map: &CostMap<SingleTokenKey>,
+    deletion_cost_map: &CostMap<SingleTokenKey>,
+    mut recorder: &mut F,
+) -> Vec<Vec<f64>>
+where
+    F: FnMut(usize, usize, Predecessor),
+{
+    let len_source = source_chars.len();
+    let len_target = target_chars.len();
+
     let mut dp = vec![vec![0.0; len_target + 1]; len_source + 1];
 
     // Initialize base cases (first row and column) using helpers
-    initialize_first_row(&mut dp, &target_chars, insertion_cost_map);
-    initialize_first_column(&mut dp, &source_chars, deletion_cost_map);
+    initialize_first_row(&mut dp, target_chars, insertion_cost_map, &mut recorder);
+    initialize_first_column(&mut dp, source_chars, deletion_cost_map, &mut recorder);
 
     // Fill the rest of the dp matrix
     for i in 1..=len_source {
         for j in 1..=len_target {
-            // --- Step 1: Calculate cost based on single-character operations ---
             let source_char_str = source_chars[i - 1].to_string();
             let target_char_str = target_chars[j - 1].to_string();
 
             // Cost of deleting source character to reach state (i, j) from (i-1, j)
-            let deletion = dp[i - 1][j] + deletion_cost_map.get_cost(&source_char_str);
+            let deletion = (
+                dp[i - 1][j] + deletion_cost_map.get_cost(&source_char_str),
+                Predecessor::Delete(1),
+            );
             // Cost of inserting target character to reach state (i, j) from (i, j-1)
-            let insertion = dp[i][j - 1] + insertion_cost_map.get_cost(&target_char_str);
+            let insertion = (
+                dp[i][j - 1] + insertion_cost_map.get_cost(&target_char_str),
+                Predecessor::Insert(1),
+            );
 
-            // Cost of substituting/matching to reach state (i, j) from (i-1, j-1)
-            let char_sub_cost = if source_chars[i - 1] == target_chars[j - 1] {
-                0.0 // Characters match
-            } else {
-                // Characters differ, get substitution cost
-                substitution_cost_map.get_cost(&source_char_str, &target_char_str)
-            };
-            let char_substitution = dp[i - 1][j - 1] + char_sub_cost;
+            let sub_cost = substitution_cost_map.get_cost(&source_char_str, &target_char_str);
+            let substitution = (dp[i - 1][j - 1] + sub_cost, Predecessor::Substitute(1, 1));
 
-            // Initialize current cell with the minimum of standard single-character operations
-            dp[i][j] = deletion.min(insertion).min(char_substitution);
+            // Find the minimum cost among single-character operations
+            let (mut min_cost, mut best_op) = substitution;
+            if insertion.0 < min_cost {
+                min_cost = insertion.0;
+                best_op = insertion.1;
+            }
+            if deletion.0 < min_cost {
+                min_cost = deletion.0;
+                best_op = deletion.1;
+            }
 
-            // --- Step 2: Check if cheaper multi-character operations exist ---
-            // These functions will update dp[i][j] if a lower cost is found
-            check_multi_char_substitutions(
+            dp[i][j] = min_cost;
+            recorder(i, j, best_op);
+
+            // Check for cheaper multi-character operations, which will update the dp cell if a better path is found.
+            check_multi_char_ops(
                 i,
                 j,
-                &source_chars,
-                &target_chars,
+                source_chars,
+                target_chars,
                 &mut dp,
                 substitution_cost_map,
+                insertion_cost_map,
+                deletion_cost_map,
+                &mut recorder,
             );
-            check_multi_char_insertions(i, j, &target_chars, &mut dp, insertion_cost_map);
-            check_multi_char_deletions(i, j, &source_chars, &mut dp, deletion_cost_map);
         }
     }
 
-    // The final distance is in the bottom-right corner
-    dp[len_source][len_target]
+    dp
 }
 
+// --- Backtracking Logic ---
+
+/// Reconstructs the edit path by walking backwards through the predecessors matrix.
+fn _backtrack(
+    predecessors: &[Vec<Predecessor>],
+    source_chars: &[char],
+    target_chars: &[char],
+    substitution_cost_map: &CostMap<SubstitutionKey>,
+    insertion_cost_map: &CostMap<SingleTokenKey>,
+    deletion_cost_map: &CostMap<SingleTokenKey>,
+) -> Vec<EditOperation> {
+    let mut path = Vec::new();
+    let mut i = source_chars.len();
+    let mut j = target_chars.len();
+
+    while i > 0 || j > 0 {
+        match predecessors[i][j] {
+            Predecessor::Substitute(s_len, t_len) => {
+                let source_token: String = source_chars[i - s_len..i].iter().collect();
+                let target_token: String = target_chars[j - t_len..j].iter().collect();
+
+                // Only add an operation if it's not a zero-cost match.
+                // This is where we filter out the identity operations.
+                if source_token != target_token {
+                    let cost = substitution_cost_map.get_cost(&source_token, &target_token);
+                    path.push(EditOperation::Substitute {
+                        source: source_token,
+                        target: target_token,
+                        cost,
+                    });
+                }
+                i -= s_len;
+                j -= t_len;
+            }
+            Predecessor::Insert(t_len) => {
+                let target_token: String = target_chars[j - t_len..j].iter().collect();
+                let cost = insertion_cost_map.get_cost(&target_token);
+                path.push(EditOperation::Insert {
+                    target: target_token,
+                    cost,
+                });
+                j -= t_len;
+            }
+            Predecessor::Delete(s_len) => {
+                let source_token: String = source_chars[i - s_len..i].iter().collect();
+                let cost = deletion_cost_map.get_cost(&source_token);
+                path.push(EditOperation::Delete {
+                    source: source_token,
+                    cost,
+                });
+                i -= s_len;
+            }
+            Predecessor::None => {
+                // This should only be reached at (0,0), ending the loop.
+                break;
+            }
+        }
+    }
+
+    path.reverse(); // The path is built backwards, so we must reverse it at the end.
+    path
+}
+
+// --- Helper Functions ---
+
 /// Initializes the first row of the DP matrix (insertions to make empty string into target prefix).
-fn initialize_first_row(
+fn initialize_first_row<F>(
     dp: &mut [Vec<f64>],
     target_chars: &[char],
-    insertion_cost_map: &CostMap<SingleTokenKey>,
-) {
-    let len_target = target_chars.len();
-    if len_target == 0 {
-        return;
-    } // Nothing to initialize if target is empty
-
+    cost_map: &CostMap<SingleTokenKey>,
+    mut recorder: F,
+) where
+    F: FnMut(usize, usize, Predecessor),
+{
     dp[0][0] = 0.0;
-    for j in 1..=len_target {
-        // Start with single character insertion cost
+    for j in 1..=target_chars.len() {
+        // Assume single character insertion is the best path initially.
         let char_str = target_chars[j - 1].to_string();
-        dp[0][j] = dp[0][j - 1] + insertion_cost_map.get_cost(&char_str);
+        dp[0][j] = dp[0][j - 1] + cost_map.get_cost(&char_str);
+        recorder(0, j, Predecessor::Insert(1));
 
-        // Check for cheaper multi-character insertions ending at j
-        let max_len = insertion_cost_map.max_token_length.min(j);
+        // Check if a longer multi-character insertion provides a cheaper path from a previous state.
+        let max_len = cost_map.max_token_length.min(j);
         for token_len in 2..=max_len {
             let token_start = j - token_len;
             let token: String = target_chars[token_start..j].iter().collect();
 
-            if insertion_cost_map.has_key(&token) {
-                let insertion_cost = insertion_cost_map.get_cost(&token);
-                let new_cost = dp[0][token_start] + insertion_cost;
-                // Update if this multi-char insertion is cheaper
+            if cost_map.has_key(&token) {
+                let new_cost = dp[0][token_start] + cost_map.get_cost(&token);
+                // If this path is cheaper, update both the cost and the predecessor.
                 if new_cost < dp[0][j] {
                     dp[0][j] = new_cost;
+                    recorder(0, j, Predecessor::Insert(token_len));
                 }
             }
         }
@@ -110,129 +251,109 @@ fn initialize_first_row(
 }
 
 /// Initializes the first column of the DP matrix (deletions to make source prefix into empty string).
-fn initialize_first_column(
+fn initialize_first_column<F>(
     dp: &mut [Vec<f64>],
     source_chars: &[char],
-    deletion_cost_map: &CostMap<SingleTokenKey>,
-) {
-    let len_source = source_chars.len();
-    if len_source == 0 {
-        return;
-    } // Nothing to initialize if source is empty
-
-    dp[0][0] = 0.0; // Already set, but ensures correctness if called independently
-    for i in 1..=len_source {
+    cost_map: &CostMap<SingleTokenKey>,
+    mut recorder: F,
+) where
+    F: FnMut(usize, usize, Predecessor),
+{
+    for i in 1..=source_chars.len() {
         // Start with single character deletion cost
         let char_str = source_chars[i - 1].to_string();
-        dp[i][0] = dp[i - 1][0] + deletion_cost_map.get_cost(&char_str);
+        dp[i][0] = dp[i - 1][0] + cost_map.get_cost(&char_str);
+        recorder(i, 0, Predecessor::Delete(1));
 
-        // Check for cheaper multi-character deletions ending at i
-        let max_len = deletion_cost_map.max_token_length.min(i);
+        // Check if a longer multi-character deletion provides a cheaper path.
+        let max_len = cost_map.max_token_length.min(i);
         for token_len in 2..=max_len {
             let token_start = i - token_len;
             let token: String = source_chars[token_start..i].iter().collect();
 
-            if deletion_cost_map.has_key(&token) {
-                let deletion_cost = deletion_cost_map.get_cost(&token);
-                let new_cost = dp[token_start][0] + deletion_cost;
-                // Update if this multi-char deletion is cheaper
+            if cost_map.has_key(&token) {
+                let new_cost = dp[token_start][0] + cost_map.get_cost(&token);
+                // If this path is cheaper, update both the cost and the predecessor.
                 if new_cost < dp[i][0] {
                     dp[i][0] = new_cost;
+                    recorder(i, 0, Predecessor::Delete(token_len));
                 }
             }
         }
     }
 }
 
-/// Helper function to check multi-character substitutions for the Levenshtein algorithm
-fn check_multi_char_substitutions(
-    current_i: usize,
-    current_j: usize,
+/// Checks for multi-character substitutions, insertions, and deletions to find a cheaper path to the current cell.
+fn check_multi_char_ops<F>(
+    i: usize,
+    j: usize,
     source_chars: &[char],
     target_chars: &[char],
     dp: &mut [Vec<f64>],
-    cost_map: &CostMap<SubstitutionKey>,
-) {
-    // Determine the maximum lengths to check based on cost map and current position
-    let max_source_len = cost_map.max_token_length.min(current_i);
-    let max_target_len = cost_map.max_token_length.min(current_j);
+    sub_map: &CostMap<SubstitutionKey>,
+    ins_map: &CostMap<SingleTokenKey>,
+    del_map: &CostMap<SingleTokenKey>,
+    mut recorder: F,
+) where
+    F: FnMut(usize, usize, Predecessor),
+{
+    // --- Check Multi-Character Substitutions ---
+    let max_source_len = sub_map.max_token_length.min(i);
+    let max_target_len = sub_map.max_token_length.min(j);
 
     // Iterate through possible multi-character lengths for source and target
     for source_len in 1..=max_source_len {
         for target_len in 1..=max_target_len {
-            // Skip single-char to single-char substitution as it's handled efficiently before
+            // The (1, 1) case is the standard substitution, already handled as the baseline.
             if source_len == 1 && target_len == 1 {
                 continue;
             }
 
-            let source_start = current_i - source_len;
-            let target_start = current_j - target_len;
-
-            let source_substr: String = source_chars[source_start..current_i].iter().collect();
-            let target_substr: String = target_chars[target_start..current_j].iter().collect();
+            let source_start = i - source_len;
+            let target_start = j - target_len;
+            let source_substr: String = source_chars[source_start..i].iter().collect();
+            let target_substr: String = target_chars[target_start..j].iter().collect();
 
             // Check if a custom cost exists for this specific substitution pair
-            if cost_map.has_key(&source_substr, &target_substr) {
-                let sub_cost = cost_map.get_cost(&source_substr, &target_substr);
-                let new_cost = dp[source_start][target_start] + sub_cost;
-
-                // Update dp table if this path is cheaper
-                if new_cost < dp[current_i][current_j] {
-                    dp[current_i][current_j] = new_cost;
+            if sub_map.has_key(&source_substr, &target_substr) {
+                let new_cost = dp[source_start][target_start]
+                    + sub_map.get_cost(&source_substr, &target_substr);
+                if new_cost < dp[i][j] {
+                    dp[i][j] = new_cost;
+                    recorder(i, j, Predecessor::Substitute(source_len, target_len));
                 }
             }
         }
     }
-}
 
-/// Helper function to check multi-character insertions for the Levenshtein algorithm
-fn check_multi_char_insertions(
-    current_i: usize,
-    current_j: usize,
-    target_chars: &[char],
-    dp: &mut [Vec<f64>],
-    cost_map: &CostMap<SingleTokenKey>,
-) {
-    let max_len = cost_map.max_token_length.min(current_j);
+    // --- Check Multi-Character Insertions ---
+    // Length 1 is handled by the standard insertion operation.
+    let max_ins_len = ins_map.max_token_length.min(j);
+    for token_len in 2..=max_ins_len {
+        let token_start = j - token_len;
+        let token: String = target_chars[token_start..j].iter().collect();
 
-    // Length 1 is handled by the standard insertion operation
-    for token_len in 2..=max_len {
-        let token_start = current_j - token_len;
-        let token: String = target_chars[token_start..current_j].iter().collect();
-
-        if cost_map.has_key(&token) {
-            let insertion_cost = cost_map.get_cost(&token);
-            let new_cost = dp[current_i][token_start] + insertion_cost;
-
-            if new_cost < dp[current_i][current_j] {
-                dp[current_i][current_j] = new_cost;
+        if ins_map.has_key(&token) {
+            let new_cost = dp[i][token_start] + ins_map.get_cost(&token);
+            if new_cost < dp[i][j] {
+                dp[i][j] = new_cost;
+                recorder(i, j, Predecessor::Insert(token_len));
             }
         }
     }
-}
 
-/// Helper function to check multi-character deletions for the Levenshtein algorithm
-fn check_multi_char_deletions(
-    current_i: usize,
-    current_j: usize,
-    source_chars: &[char],
-    dp: &mut [Vec<f64>],
-    cost_map: &CostMap<SingleTokenKey>,
-) {
-    let max_len = cost_map.max_token_length.min(current_i);
+    // --- Check Multi-Character Deletions ---
+    // Length 1 is handled by the standard deletion operation.
+    let max_del_len = del_map.max_token_length.min(i);
+    for token_len in 2..=max_del_len {
+        let token_start = i - token_len;
+        let token: String = source_chars[token_start..i].iter().collect();
 
-    // Length 1 is handled by the standard deletion operation
-    for token_len in 2..=max_len {
-        let token_start = current_i - token_len;
-        let token: String = source_chars[token_start..current_i].iter().collect();
-
-        if cost_map.has_key(&token) {
-            let deletion_cost = cost_map.get_cost(&token);
-            let new_cost = dp[token_start][current_j] + deletion_cost;
-
-            // Update dp table if this path is cheaper
-            if new_cost < dp[current_i][current_j] {
-                dp[current_i][current_j] = new_cost;
+        if del_map.has_key(&token) {
+            let new_cost = dp[token_start][j] + del_map.get_cost(&token);
+            if new_cost < dp[i][j] {
+                dp[i][j] = new_cost;
+                recorder(i, j, Predecessor::Delete(token_len));
             }
         }
     }
@@ -861,37 +982,44 @@ mod test {
     }
 
     #[test]
-    fn test_check_multi_char_insertions() {
+    fn test_check_multi_char_ops_for_insertion() {
         // Create a simple DP matrix
         let mut dp = vec![vec![0.0, 1.0, 2.0, 3.0], vec![1.0, 0.0, 1.0, 2.0]];
 
-        // Create a cost map with multi-character insertion
+        // Setup cost maps: only insertions have a special multi-char cost.
         let ins_map = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("ab".to_string(), 0.3)]),
             1.0,
         );
+        let del_map = CostMap::<SingleTokenKey>::default(); // Empty
+        let sub_map = CostMap::<SubstitutionKey>::default(); // Empty
 
-        // Target chars representing "abc"
-        let target_chars = vec!['a', 'b', 'c'];
+        // Target chars representing "cab"
+        let source_chars = vec!['x']; // Dummy source
+        let target_chars = vec!['c', 'a', 'b'];
 
-        // Initial dp[1][3] = 2.0. "bc" is not in the map, so it shouldn't change.
-        check_multi_char_insertions(1, 3, &target_chars, &mut dp, &ins_map);
-        assert_approx_eq(dp[1][3], 2.0, 1e-9); // Value should remain unchanged
-
-        // Now let's check with a matching token
-        // Target chars representing "cab", dp[1][3] still 2.0
-        let target_chars2 = vec!['c', 'a', 'b'];
-        let mut dp2 = vec![vec![0.0, 1.0, 2.0, 3.0], vec![1.0, 0.0, 1.0, 2.0]]; // Reset dp state
+        // A dummy recorder that does nothing, required by the function signature.
+        let mut recorder = |_i, _j, _op| {};
 
         // Check position (1, 3) for target "cab". Token is "ab".
         // Should use dp[1][1] + cost("ab") = 0.0 + 0.3 = 0.3
-        // Since 0.3 < dp2[1][3] (which is 2.0), it should update.
-        check_multi_char_insertions(1, 3, &target_chars2, &mut dp2, &ins_map);
-        assert_approx_eq(dp2[1][3], 0.3, 1e-9); // Value should be updated
+        // Since 0.3 < dp[1][3] (which is 2.0), it should update.
+        check_multi_char_ops(
+            1,
+            3,
+            &source_chars,
+            &target_chars,
+            &mut dp,
+            &sub_map,
+            &ins_map,
+            &del_map,
+            &mut recorder,
+        );
+        assert_approx_eq(dp[1][3], 0.3, 1e-9); // Value should be updated
     }
 
     #[test]
-    fn test_check_multi_char_deletions() {
+    fn test_check_multi_char_ops_for_deletion() {
         // Create a simple DP matrix (4x3 matrix)
         let mut dp = vec![
             vec![0.0, 1.0, 2.0], // Row 0
@@ -900,36 +1028,44 @@ mod test {
             vec![3.0, 2.0, 1.0], // Row 3
         ];
 
-        // Create a cost map with multi-character deletion
+        // Setup cost maps: only deletions have a special multi-char cost.
         let del_map = CostMap::<SingleTokenKey>::new(
             SingleTokenCostMap::from([("bc".to_string(), 0.4)]),
             1.0,
         );
+        let ins_map = CostMap::<SingleTokenKey>::default(); // Empty
+        let sub_map = CostMap::<SubstitutionKey>::default(); // Empty
 
         // Source chars representing "abcd"
         let source_chars = vec!['a', 'b', 'c', 'd'];
+        let target_chars = vec!['x']; // Dummy target
+        let mut recorder = |_i, _j, _op| {};
 
         // Check position (3, 1). Current dp[3][1] is 2.0.
         // Check token "bc" (source_chars[1..3]).
         // New cost would be dp[1][1] + cost("bc") = 0.0 + 0.4 = 0.4
         // Since 0.4 < 2.0, dp[3][1] should be updated to 0.4.
-        let token_start = 3 - 2; // current_i = 3, token_len = 2
-        let expected_new_cost = dp[token_start][1] + del_map.get_cost("bc");
-
-        check_multi_char_deletions(3, 1, &source_chars, &mut dp, &del_map);
-
-        // Check if the function updated the dp value correctly
-        assert_approx_eq(dp[3][1], expected_new_cost, 1e-9); // Should be 0.4
-        assert_approx_eq(dp[3][1], 0.4, 1e-9); // Explicit check
+        check_multi_char_ops(
+            3,
+            1,
+            &source_chars,
+            &target_chars,
+            &mut dp,
+            &sub_map,
+            &ins_map,
+            &del_map,
+            &mut recorder,
+        );
+        assert_approx_eq(dp[3][1], 0.4, 1e-9);
     }
 
     #[test]
-    fn test_empty_cost_maps_for_helpers() {
-        // Tests helper functions with empty cost maps
-        let ins_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
-        let del_map = CostMap::<SingleTokenKey>::new(SingleTokenCostMap::new(), 1.0);
+    fn test_check_multi_char_ops_with_empty_maps() {
+        // Tests the consolidated helper with all cost maps being empty of special rules.
+        let ins_map = CostMap::<SingleTokenKey>::default();
+        let del_map = CostMap::<SingleTokenKey>::default();
+        let sub_map = CostMap::<SubstitutionKey>::default();
 
-        // Test multi-character operations directly on DP state
         let mut dp = vec![
             vec![0.0, 1.0, 2.0],
             vec![1.0, 0.0, 1.0],
@@ -938,17 +1074,25 @@ mod test {
         ];
         let source_chars = vec!['a', 'b', 'c', 'd'];
         let target_chars = vec!['x', 'y', 'z'];
+        let mut recorder = |_i, _j, _op| {};
 
-        // Store original values
-        let original_dp_2_2 = dp[2][2];
+        // Store original value
         let original_dp_3_2 = dp[3][2];
 
-        // Since the cost maps are empty, these should not find any multi-char keys and thus not modify dp values
-        check_multi_char_insertions(2, 2, &target_chars, &mut dp, &ins_map);
-        check_multi_char_deletions(3, 2, &source_chars, &mut dp, &del_map);
+        // Since the cost maps are empty, this should not find any multi-char keys and thus not modify the dp value.
+        check_multi_char_ops(
+            3,
+            2,
+            &source_chars,
+            &target_chars,
+            &mut dp,
+            &sub_map,
+            &ins_map,
+            &del_map,
+            &mut recorder,
+        );
 
-        // DP values should remain unchanged
-        assert_approx_eq(dp[2][2], original_dp_2_2, 1e-9);
+        // DP value should remain unchanged
         assert_approx_eq(dp[3][2], original_dp_3_2, 1e-9);
     }
 
