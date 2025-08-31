@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -69,6 +71,11 @@ class WeightedLevenshtein:
         self.default_substitution_cost = default_substitution_cost
         self.default_insertion_cost = default_insertion_cost
         self.default_deletion_cost = default_deletion_cost
+
+    @classmethod
+    def unweighted(cls) -> WeightedLevenshtein:
+        """Creates an instance with all operations having equal cost of 1.0."""
+        return cls(substitution_costs={}, insertion_costs={}, deletion_costs={})
 
     def distance(self, s1: str, s2: str) -> float:
         """Calculates the weighted Levenshtein distance between two strings."""

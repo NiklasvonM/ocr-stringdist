@@ -5,8 +5,6 @@ API Reference
 
 .. autoclass:: ocr_stringdist.WeightedLevenshtein
    :members:
-   :noindex:
-   :exclude-members: __repr__, __str__
 
 .. autofunction:: ocr_stringdist.weighted_levenshtein_distance
 .. autofunction:: ocr_stringdist.batch_weighted_levenshtein_distance

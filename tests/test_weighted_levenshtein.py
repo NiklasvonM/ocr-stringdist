@@ -1,5 +1,15 @@
 import pytest
-from ocr_stringdist import weighted_levenshtein_distance
+from ocr_stringdist import WeightedLevenshtein, weighted_levenshtein_distance
+
+
+def test_unweighted_levenshtein() -> None:
+    wl = WeightedLevenshtein.unweighted()
+    assert wl.default_substitution_cost == 1.0
+    assert wl.default_insertion_cost == 1.0
+    assert wl.default_deletion_cost == 1.0
+    assert wl.substitution_costs == {}
+    assert wl.insertion_costs == {}
+    assert wl.deletion_costs == {}
 
 
 @pytest.mark.parametrize(

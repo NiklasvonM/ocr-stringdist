@@ -51,7 +51,9 @@ select = [
     # refurb
     "FURB",
 ]
-ignore = []
+ignore = [
+    "UP007", # Allow Option[T] for older Python versions.
+]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
 fixable = ["ALL"]
