@@ -27,8 +27,6 @@ OCR-StringDist uses a **weighted Levenshtein distance**, assigning lower costs t
 
 This makes it ideal for matching potentially incorrect OCR output against known values (e.g., product codes, database entries).
 
-> **Note:** This project is in early development. APIs may change in future releases.
-
 ## Installation
 
 ```bash
@@ -37,7 +35,9 @@ pip install ocr-stringdist
 
 ## Features
 
+- **High Performance**: The core logic is implemented in Rust with speed in mind.
 - **Weighted Levenshtein Distance**: Calculates Levenshtein distance with customizable costs for substitutions, insertions, and deletions. Includes an efficient batch version (`batch_weighted_levenshtein_distance`) for comparing one string against many candidates.
+- **Explainable Edit Path**: Returns the optimal sequence of edit operations (substitutions, insertions, and deletions) used to transform one string into another.
 - **Substitution of Multiple Characters**: Not just character pairs, but string pairs may be substituted, for example the Korean syllable "이" for the two letters "OI".
 - **Pre-defined OCR Distance Map**: A built-in distance map for common OCR confusions (e.g., "0" vs "O", "1" vs "l", "5" vs "S").
 - **Unicode Support**: Works with arbitrary Unicode strings.
@@ -45,24 +45,44 @@ pip install ocr-stringdist
 
 ## Usage
 
-### Weighted Levenshtein Distance
+### Basic usage
 
 ```python
-import ocr_stringdist as osd
+from ocr_stringdist import WeightedLevenshtein
 
-# Using default OCR distance map
-distance = osd.weighted_levenshtein_distance("OCR5", "OCRS")
-print(f"Distance between 'OCR5' and 'OCRS': {distance}")  # Will be less than 1.0
+# Default substitution costs are ocr_stringdist.ocr_distance_map.
+wl = WeightedLevenshtein()
 
-# Custom cost map
-substitution_costs = {("In", "h"): 0.5}
-distance = osd.weighted_levenshtein_distance(
-    "hi", "Ini",
-    substitution_costs=substitution_costs,
-    symmetric_substitution=True,
-)
-print(f"Distance with custom map: {distance}")
+print(wl.distance("CXDE", "CODE")) # == 1
+print(wl.distance("C0DE", "CODE")) # < 1
 ```
+
+### Explain the Edit Path
+
+```python
+edit_path = wl.explain("C0DE", "CODE")
+print(edit_path)
+# EditOperation(op_type='substitute', source_token='0', target_token='O', cost=0.1)]
+```
+
+### Fast Batch Calculations
+
+Quickly compare a string to a list of candidates.
+
+```python
+distances: list[float] = wl.batch_distance("CODE", ["CXDE", "C0DE"])
+# [1.0, 0.1]
+```
+
+### Multi-character Substitutions
+
+```python
+# Custom costs with multi-character substitution
+wl = WeightedLevenshtein(substitution_costs={("In", "h"): 0.5})
+
+print(wl.distance("hi", "Ini")) # 0.5
+```
+
 
 ## Acknowledgements
 
