@@ -1,7 +1,7 @@
 venv:
     rm -rf .venv
     uv venv
-    uv sync
+    uv sync --all-groups
 
 pytest:
     uv run maturin develop

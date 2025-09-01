@@ -16,11 +16,11 @@ After installation, you can quickly calculate an OCR-aware string distance:
 
 .. code-block:: python
 
-    import ocr_stringdist as osd
+    from ocr_stringdist import WeightedLevenshtein
 
     # Calculate distance using the default OCR error costs
     # ("O" vs "0" has a low cost)
-    distance = osd.weighted_levenshtein_distance("HELLO", "HELL0")
+    distance = WeightedLevenshtein().distance("HELLO", "HELL0")
 
     print(f"The OCR-aware distance is: {distance}")
 

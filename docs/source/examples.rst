@@ -9,11 +9,11 @@ Using the default pre-defined map for common OCR errors:
 
 .. code-block:: python
 
-    import ocr_stringdist as osd
+    from ocr_stringdist import WeightedLevenshtein
 
     # Compare "OCR5" and "OCRS"
     # The default ocr_distance_map gives 'S' <-> '5' a cost of 0.3
-    distance = osd.weighted_levenshtein_distance("OCR5", "OCRS")
+    distance: float = WeightedLevenshtein().distance("OCR5", "OCRS")
     print(f"Distance between 'OCR5' and 'OCRS' (default map): {distance}")
     # Output: Distance between 'OCR5' and 'OCRS' (default map): 0.3
 
@@ -63,7 +63,7 @@ This is a primary use case: finding the best match for an OCR string from a list
 
     # Method 2: Using WeightedLevenshtein.batch_distance
     # Generally more efficient when comparing against many candidates.
-    distances = wl.batch_distance(ocr_output, possible_cities)
+    distances: list[float] = wl.batch_distance(ocr_output, possible_cities)
 
     min_dist_batch = min(distances)
     best_candidate_batch = possible_cities[distances.index(min_dist_batch)]
