@@ -62,7 +62,7 @@ print(wl.distance("C0DE", "CODE")) # < 1
 ```python
 edit_path = wl.explain("C0DE", "CODE")
 print(edit_path)
-# EditOperation(op_type='substitute', source_token='0', target_token='O', cost=0.1)]
+# [EditOperation(op_type='substitute', source_token='0', target_token='O', cost=0.1)]
 ```
 
 ### Fast Batch Calculations
