@@ -16,7 +16,7 @@ OperationType = Literal["substitute", "insert", "delete", "match"]
 @dataclass(frozen=True)
 class EditOperation:
     """
-    Represents a single edit operation (substitution, insertion, or deletion).
+    Represents a single edit operation (substitution, insertion, deletion or match).
     """
 
     op_type: OperationType
@@ -33,14 +33,14 @@ class WeightedLevenshtein:
     how the distance is measured. Once created, its methods can be used to
     efficiently compute distances and explain the edit operations.
 
-    :param substitution_costs: Maps (char, char) tuples to their substitution cost.
+    :param substitution_costs: Maps (str, str) tuples to their substitution cost.
                                Defaults to costs based on common OCR errors.
-    :param insertion_costs: Maps a character to its insertion cost.
-    :param deletion_costs: Maps a character to its deletion cost.
+    :param insertion_costs: Maps a string to its insertion cost.
+    :param deletion_costs: Maps a string to its deletion cost.
     :param symmetric_substitution: If True, substitution costs are bidirectional.
-    :param default_substitution_cost: Default cost for substitutions not in the map.
-    :param default_insertion_cost: Default cost for insertions not in the map.
-    :param default_deletion_cost: Default cost for deletions not in the map.
+    :param default_substitution_cost: Default cost for single-char substitutions not in the map.
+    :param default_insertion_cost: Default cost for single-char insertions not in the map.
+    :param default_deletion_cost: Default cost for single-char deletions not in the map.
     """
 
     substitution_costs: dict[tuple[str, str], float]
