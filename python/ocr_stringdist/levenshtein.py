@@ -10,7 +10,7 @@ from ._rust_stringdist import (
 )
 from .default_ocr_distances import ocr_distance_map
 
-OperationType = Literal["substitute", "insert", "delete"]
+OperationType = Literal["substitute", "insert", "delete", "match"]
 
 
 @dataclass(frozen=True)
@@ -81,10 +81,20 @@ class WeightedLevenshtein:
         """Calculates the weighted Levenshtein distance between two strings."""
         return _weighted_levenshtein_distance(s1, s2, **self.__dict__)  # type: ignore[no-any-return]
 
-    def explain(self, s1: str, s2: str) -> list[EditOperation]:
-        """Returns the list of edit operations to transform s1 into s2."""
+    def explain(self, s1: str, s2: str, filter_matches: bool = True) -> list[EditOperation]:
+        """
+        Returns the list of edit operations to transform s1 into s2.
+
+        :param s1: First string (interpreted as the string read via OCR)
+        :param s2: Second string (interpreted as the target string)
+        :param filter_matches: If True, 'match' operations are excluded from the result.
+        :return: List of :class:`EditOperation` instances.
+        """
         raw_path = _explain_weighted_levenshtein_distance(s1, s2, **self.__dict__)
-        return [EditOperation(*op) for op in raw_path]
+        parsed_path = [EditOperation(*op) for op in raw_path]
+        if filter_matches:
+            return list(filter(lambda op: op.op_type != "match", parsed_path))
+        return parsed_path
 
     def batch_distance(self, s: str, candidates: list[str]) -> list[float]:
         """Calculates distances between a string and a list of candidates."""
@@ -203,6 +213,7 @@ def explain_weighted_levenshtein(
     default_substitution_cost: float = 1.0,
     default_insertion_cost: float = 1.0,
     default_deletion_cost: float = 1.0,
+    filter_matches: bool = True,
 ) -> list[EditOperation]:
     """
     Computes the path of operations associated with the custom Levenshtein distance.
@@ -239,4 +250,4 @@ def explain_weighted_levenshtein(
         default_substitution_cost=default_substitution_cost,
         default_insertion_cost=default_insertion_cost,
         default_deletion_cost=default_deletion_cost,
-    ).explain(s1, s2)
+    ).explain(s1, s2, filter_matches=filter_matches)

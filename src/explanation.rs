@@ -15,6 +15,9 @@ pub enum EditOperation {
         source: String,
         cost: f64,
     },
+    Match {
+        token: String,
+    },
 }
 
 /// Represents the predecessor cell in the DP matrix, used for backtracking.
@@ -25,4 +28,5 @@ pub enum Predecessor {
     Substitute(usize, usize),
     Insert(usize),
     Delete(usize),
+    Match(usize),
 }

@@ -23,6 +23,7 @@ impl<'py> IntoPyObject<'py> for EditOperation {
             } => ("substitute", Some(source), Some(target), cost),
             EditOperation::Insert { target, cost } => ("insert", None, Some(target), cost),
             EditOperation::Delete { source, cost } => ("delete", Some(source), None, cost),
+            EditOperation::Match { token } => ("match", Some(token.clone()), Some(token), 0.0),
         }
         .into_pyobject(py)
         .map(|tuple| tuple.into_any())

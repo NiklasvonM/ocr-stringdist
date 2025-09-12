@@ -132,7 +132,14 @@ impl<'a> LevenshteinProcessor<'a> {
         let sub_cost = self.sub_map.get_cost(&source_char_str, &target_char_str);
         let substitution_cost = self.dp[i - 1][j - 1] + sub_cost;
 
-        let (mut min_cost, mut best_op) = (substitution_cost, Predecessor::Substitute(1, 1));
+        // Check for exact match
+        let match_cost = self.dp[i - 1][j - 1];
+        let (mut min_cost, mut best_op) = if source_char_str == target_char_str {
+            (match_cost, Predecessor::Match(1))
+        } else {
+            (substitution_cost, Predecessor::Substitute(1, 1))
+        };
+
         if insertion_cost < min_cost {
             min_cost = insertion_cost;
             best_op = Predecessor::Insert(1);
@@ -294,6 +301,12 @@ impl<'a> LevenshteinProcessor<'a> {
                         cost,
                     });
                     i -= s_len;
+                }
+                Predecessor::Match(t_len) => {
+                    let token: String = self.target_chars[j - t_len..j].iter().collect();
+                    path.push(EditOperation::Match { token });
+                    i -= t_len;
+                    j -= t_len;
                 }
                 Predecessor::None => {
                     break;
