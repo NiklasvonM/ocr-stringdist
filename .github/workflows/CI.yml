@@ -124,6 +124,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.interpreter }}
+      - name: Ensure pythonXY.lib exists (for PyO3 on Windows)
+        shell: pwsh
+        run: |
+          $py = "${{ matrix.interpreter }}"
+          $libPath = "${{ env.pythonLocation }}\\libs\\python${py.Replace('.', '')}.lib"
+          if (!(Test-Path $libPath)) {
+            Write-Host "pythonXY.lib missing, generating..."
+            & "${{ env.pythonLocation }}\\python.exe" -c "
+import distutils.sysconfig, shutil, sys
+libdir = distutils.sysconfig.get_config_var('LIBDIR')
+libname = distutils.sysconfig.get_config_var('LDLIBRARY')
+src = libdir + '\\\\' + libname
+dst = sys.prefix + '\\\\libs\\\\' + libname
+shutil.copyfile(src, dst)
+"
+          }
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
