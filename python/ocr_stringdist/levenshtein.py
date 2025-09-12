@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal, Optional
+from collections.abc import Iterable
+from typing import Optional
 
 from ._rust_stringdist import (
     _batch_weighted_levenshtein_distance,
@@ -9,20 +9,7 @@ from ._rust_stringdist import (
     _weighted_levenshtein_distance,
 )
 from .default_ocr_distances import ocr_distance_map
-
-OperationType = Literal["substitute", "insert", "delete", "match"]
-
-
-@dataclass(frozen=True)
-class EditOperation:
-    """
-    Represents a single edit operation (substitution, insertion, deletion or match).
-    """
-
-    op_type: OperationType
-    source_token: Optional[str]
-    target_token: Optional[str]
-    cost: float
+from .edit_operation import EditOperation
 
 
 class WeightedLevenshtein:
@@ -99,6 +86,24 @@ class WeightedLevenshtein:
     def batch_distance(self, s: str, candidates: list[str]) -> list[float]:
         """Calculates distances between a string and a list of candidates."""
         return _batch_weighted_levenshtein_distance(s, candidates, **self.__dict__)  # type: ignore[no-any-return]
+
+    @classmethod
+    def learn_from(cls, pairs: Iterable[tuple[str, str]]) -> WeightedLevenshtein:
+        """
+        Creates an instance by learning costs from a dataset of OCR errors.
+
+        This is the recommended, user-friendly way to generate a custom cost model
+        tailored to a specific OCR engine's error patterns. It uses default
+        settings for cost calculation (negative log-likelihood).
+
+        For more advanced configuration, see the `ocr_stringdist.learner.Learner` class.
+
+        :param pairs: An iterable of (ocr_string, ground_truth_string) tuples.
+        :return: A new `WeightedLevenshtein` instance with the learned costs.
+        """
+        from .learner import Learner
+
+        return Learner().fit(pairs)
 
 
 def weighted_levenshtein_distance(
