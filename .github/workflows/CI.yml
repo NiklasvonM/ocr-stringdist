@@ -31,9 +31,13 @@ jobs:
         run: cargo test
       - name: Run pytest
         run: |
-          pip install wheel pytest maturin
+          # just venv pytest
+          rm -rf .venv
+          python3 -m venv .venv
+          . .venv/bin/activate
+          .venv/bin/pip install wheel pytest maturin
           maturin develop
-          pytest
+          .venv/bin/pytest
 
   linux:
     name: Build Wheels (Linux)
