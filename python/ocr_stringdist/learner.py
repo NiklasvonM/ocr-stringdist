@@ -2,7 +2,7 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Optional, Self
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from .edit_operation import EditOperation
@@ -68,7 +68,7 @@ class Learner:
         self._cost_function = negative_log_likelihood
         self._smoothing_k = 1.0
 
-    def with_cost_function(self, cost_function: CostFunction) -> Self:
+    def with_cost_function(self, cost_function: CostFunction) -> "Learner":
         """
         Sets a custom function to convert probabilities to costs.
 
@@ -80,7 +80,7 @@ class Learner:
         self._cost_function = cost_function
         return self
 
-    def with_smoothing(self, k: float) -> Self:
+    def with_smoothing(self, k: float) -> "Learner":
         r"""
         Sets the smoothing parameter `k`.
 

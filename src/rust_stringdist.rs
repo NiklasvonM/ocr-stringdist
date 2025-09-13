@@ -5,11 +5,11 @@ use crate::weighted_levenshtein::custom_levenshtein_distance_with_cost_maps as c
 use crate::weighted_levenshtein::explain_custom_levenshtein_distance as explain_core;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 use rayon::prelude::*;
 
 impl<'py> IntoPyObject<'py> for EditOperation {
-    type Target = PyAny;
+    type Target = PyTuple;
     type Output = Bound<'py, Self::Target>;
     type Error = pyo3::PyErr;
 
@@ -26,7 +26,6 @@ impl<'py> IntoPyObject<'py> for EditOperation {
             EditOperation::Match { token } => ("match", Some(token.clone()), Some(token), 0.0),
         }
         .into_pyobject(py)
-        .map(|tuple| tuple.into_any())
     }
 }
 
@@ -381,55 +380,50 @@ mod tests {
     }
 
     #[test]
-    fn test_all_edit_operation_variants_into_pyobject() {
+    fn test_edit_op_substitute_into_pyobject() {
         Python::with_gil(|py| {
-            // Substitute
-            let sub_op = EditOperation::Substitute {
+            let op = EditOperation::Substitute {
                 source: "a".to_string(),
                 target: "b".to_string(),
                 cost: 0.75,
             };
-            let sub_obj = sub_op.into_pyobject(py).unwrap();
-            let sub_tuple = sub_obj.downcast_into::<PyTuple>().unwrap();
-            assert_eq!(
-                sub_tuple.into_pyobject(py).unwrap().to_string(),
-                "('substitute', 'a', 'b', 0.75)"
-            );
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('substitute', 'a', 'b', 0.75)");
+        });
+    }
 
-            // Insert
-            let ins_op = EditOperation::Insert {
+    #[test]
+    fn test_edit_op_insert_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Insert {
                 target: "c".to_string(),
                 cost: 1.0,
             };
-            let ins_obj = ins_op.into_pyobject(py).unwrap();
-            let ins_tuple = ins_obj.downcast_into::<PyTuple>().unwrap();
-            assert_eq!(
-                ins_tuple.into_pyobject(py).unwrap().to_string(),
-                "('insert', None, 'c', 1.0)"
-            );
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('insert', None, 'c', 1.0)");
+        });
+    }
 
-            // Delete
-            let del_op = EditOperation::Delete {
+    #[test]
+    fn test_edit_op_delete_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Delete {
                 source: "d".to_string(),
                 cost: 1.2,
             };
-            let del_obj = del_op.into_pyobject(py).unwrap();
-            let del_tuple = del_obj.downcast_into::<PyTuple>().unwrap();
-            assert_eq!(
-                del_tuple.into_pyobject(py).unwrap().to_string(),
-                "('delete', 'd', None, 1.2)"
-            );
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('delete', 'd', None, 1.2)");
+        });
+    }
 
-            // Match
-            let match_op = EditOperation::Match {
+    #[test]
+    fn test_edit_op_match_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Match {
                 token: "e".to_string(),
             };
-            let match_obj = match_op.into_pyobject(py).unwrap();
-            let match_tuple = match_obj.downcast_into::<PyTuple>().unwrap();
-            assert_eq!(
-                match_tuple.into_pyobject(py).unwrap().to_string(),
-                "('match', 'e', 'e', 0.0)"
-            );
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('match', 'e', 'e', 0.0)");
         });
     }
 

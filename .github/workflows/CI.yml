@@ -16,8 +16,9 @@ jobs:
     name: Lint & Test
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13", "pypy3.11"]
+        python-version: ["3.9", "3.13"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,14 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install Just
-        uses: extractions/setup-just@v2
       - name: Run Cargo Tests
-        env:
-          # For PyPy, we need to help the linker find the shared library.
-          # The `pythonLocation` env var is set by the `actions/setup-python` step.
-          LD_LIBRARY_PATH: ${{ env.pythonLocation }}/lib
-        run: cargo test --features python
+        run: cargo test --features python -- --nocapture --test-threads=1
       - name: Run pytest
         run: |
           # just venv pytest
@@ -51,11 +46,11 @@ jobs:
       matrix:
         platform:
           - target: x64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
           - target: aarch64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
           - target: armv7
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,13 +77,13 @@ jobs:
         platform:
           - target: x86_64-unknown-linux-musl
             arch: x86_64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
           - target: i686-unknown-linux-musl
             arch: x86
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
           - target: aarch64-unknown-linux-musl
             arch: aarch64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
         # all values: [x86_64, x86, aarch64, armhf, armv7, ppc64le, riscv64, s390x]
         # { target: "armv7-unknown-linux-musleabihf", image_tag: "armv7" },
         # { target: "powerpc64le-unknown-linux-musl", image_tag: "ppc64le" },
@@ -156,9 +151,9 @@ jobs:
       matrix:
         platform:
           - target: x64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
           - target: aarch64
-            interpreter: 3.9 3.10 3.11 3.12 3.13 pypy3.9 pypy3.10 pypy3.11
+            interpreter: 3.9 3.10 3.11 3.12 3.13
     steps:
       - uses: actions/checkout@v4
         with:
