@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add the option to include the matched characters in the `explain` method via the `filter_matches` parameter.
 - Add the option to learn the costs from a dataset of pairs (OCR result, ground truth) via the `WeightedLevenshtein.learn_from` method and the `Learner` class.
 
+### Changed
+
+- Drop support for PyPy due to issues with PyO3.
+
 ## [0.2.2] - 2025-09-01
 
 ### Changed
