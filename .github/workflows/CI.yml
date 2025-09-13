@@ -25,17 +25,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: DEBUG - Find PyPy Library
-        run: |
-          echo "Python location is: ${{ env.pythonLocation }}"
-          echo "---"
-          echo "Searching for the library file..."
-          find ${{ env.pythonLocation }} -name "libpypy*.so"
       - name: Run Cargo Tests
         env:
           # For PyPy, we need to help the linker find the shared library.
           # The `pythonLocation` env var is set by the `actions/setup-python` step.
-          LD_LIBRARY_PATH: ${{ env.pythonLocation }}/lib
+          LD_LIBRARY_PATH: ${{ env.pythonLocation }}/bin
         run: cargo test --features python
       - name: Run pytest
         run: |
