@@ -25,30 +25,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Configure PyO3 for PyPy
+      - name: Set PyPy Library Path
         if: startsWith(matrix.python-version, 'pypy')
         run: |
-          # Find path to PyPy-Shared-Library
-          PYPY_LIB_PATH=$(find ${{ env.pythonLocation }} -name "libpypy3-c.so")
-          echo "Found PyPy library at: $PYPY_LIB_PATH"
-          echo "PYO3_PYPY_LIB=$PYPY_LIB_PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$(dirname $PYPY_LIB_PATH)" >> $GITHUB_ENV
-      - name: Run Cargo Tests under GDB (PyPy only)
-        if: startsWith(matrix.python-version, 'pypy')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gdb
-          # Compile first without testing to create the executable
-          cargo test --no-run --features python
-          # Find test executable
-          TEST_EXE=$(find target/debug/deps -type f -executable -name "ocr_stringdist-*" ! -name "*.d")
-          echo "Running test executable under GDB: $TEST_EXE"
-          # Execute GDB in batch mode:
-          # -ex "run": start program
-          # -ex "bt": show backtrace on crash
-          # --batch: shutdown GDB after commands
-          # --args: pass arguments to the test executable
-          gdb -ex "run" -ex "bt" --batch --args $TEST_EXE -- --nocapture --test-threads=1
+          # Find the path to the PyPy-Shared-Library.
+          LIB_DIR=$(find ${{ env.pythonLocation }} -name "libpypy*-c.so" -printf "%h" | head -n 1)
+          
+          if [ -z "$LIB_DIR" ]; then
+            echo "::error::PyPy shared library (.so file) could not be found!"
+            echo "Listing contents of ${{ env.pythonLocation }} to debug:"
+            find ${{ env.pythonLocation }}
+            exit 1
+          fi
+          
+          echo "Found PyPy library directory: $LIB_DIR"
+          echo "LD_LIBRARY_PATH=$LIB_DIR" >> $GITHUB_ENV
       - name: Run Cargo Tests
         run: cargo test --features python -- --nocapture --test-threads=1
       - name: Run pytest
