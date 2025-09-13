@@ -25,8 +25,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install Just
-        uses: extractions/setup-just@v2
+      - name: DEBUG - Find PyPy Library
+        run: |
+          echo "Python location is: ${{ env.pythonLocation }}"
+          echo "---"
+          echo "Searching for the library file..."
+          find ${{ env.pythonLocation }} -name "libpypy*.so"
       - name: Run Cargo Tests
         env:
           # For PyPy, we need to help the linker find the shared library.
