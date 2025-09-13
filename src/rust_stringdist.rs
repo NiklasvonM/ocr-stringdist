@@ -234,3 +234,311 @@ pub fn _rust_stringdist(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_explain_weighted_levenshtein_distance, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::{PyDict, PyList, PyTuple};
+
+    #[test]
+    fn test_levenshtein_distance_with_empty_costs() {
+        Python::with_gil(|py| {
+            let a = "hello";
+            let b = "hxllo";
+
+            let substitution_costs = PyDict::new(py);
+            let insertion_costs = PyDict::new(py);
+            let deletion_costs = PyDict::new(py);
+
+            let distance = _weighted_levenshtein_distance(
+                a,
+                b,
+                &substitution_costs,
+                &insertion_costs,
+                &deletion_costs,
+                true,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            assert_eq!(distance, 1.0);
+        });
+    }
+
+    #[test]
+    fn test_levenshtein_with_custom_substitution_cost() {
+        Python::with_gil(|py| {
+            let a = "hello";
+            let b = "hxllo";
+
+            let substitution_costs = PyDict::new(py);
+            substitution_costs.set_item(("e", "x"), 0.2).unwrap();
+
+            let insertion_costs = PyDict::new(py);
+            let deletion_costs = PyDict::new(py);
+
+            let distance = _weighted_levenshtein_distance(
+                a,
+                b,
+                &substitution_costs,
+                &insertion_costs,
+                &deletion_costs,
+                true,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            assert!((distance - 0.2).abs() < f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_levenshtein_asymmetric_substitution() {
+        Python::with_gil(|py| {
+            let a = "ab";
+            let b = "ba";
+
+            let substitution_costs = PyDict::new(py);
+            substitution_costs.set_item(("a", "b"), 0.1).unwrap();
+
+            let insertion_costs = PyDict::new(py);
+            let deletion_costs = PyDict::new(py);
+
+            let distance = _weighted_levenshtein_distance(
+                a,
+                b,
+                &substitution_costs,
+                &insertion_costs,
+                &deletion_costs,
+                false,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            // Cost should be 0.1 (a->b) + 1.0 (b->a, default)
+            assert!((distance - 1.1).abs() < f64::EPSILON);
+        });
+    }
+
+    #[test]
+    fn test_negative_default_cost_errors() {
+        Python::with_gil(|py| {
+            let a = "test";
+            let b = "toast";
+            let empty_costs = PyDict::new(py);
+
+            // Test negative substitution cost
+            let sub_err = _weighted_levenshtein_distance(
+                a,
+                b,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                -1.0,
+                1.0,
+                1.0,
+            );
+            assert!(sub_err.is_err());
+            assert!(sub_err.unwrap_err().is_instance_of::<PyValueError>(py));
+
+            // Test negative insertion cost
+            let ins_err = _weighted_levenshtein_distance(
+                a,
+                b,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                1.0,
+                -1.0,
+                1.0,
+            );
+            assert!(ins_err.is_err());
+            assert!(ins_err.unwrap_err().is_instance_of::<PyValueError>(py));
+
+            // Test negative deletion cost
+            let del_err = _weighted_levenshtein_distance(
+                a,
+                b,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                1.0,
+                1.0,
+                -1.0,
+            );
+            assert!(del_err.is_err());
+            assert!(del_err.unwrap_err().is_instance_of::<PyValueError>(py));
+        });
+    }
+
+    #[test]
+    fn test_all_edit_operation_variants_into_pyobject() {
+        Python::with_gil(|py| {
+            // Substitute
+            let sub_op = EditOperation::Substitute {
+                source: "a".to_string(),
+                target: "b".to_string(),
+                cost: 0.75,
+            };
+            let sub_obj = sub_op.into_pyobject(py).unwrap();
+            let sub_tuple = sub_obj.downcast_into::<PyTuple>().unwrap();
+            assert_eq!(
+                sub_tuple.into_pyobject(py).unwrap().to_string(),
+                "('substitute', 'a', 'b', 0.75)"
+            );
+
+            // Insert
+            let ins_op = EditOperation::Insert {
+                target: "c".to_string(),
+                cost: 1.0,
+            };
+            let ins_obj = ins_op.into_pyobject(py).unwrap();
+            let ins_tuple = ins_obj.downcast_into::<PyTuple>().unwrap();
+            assert_eq!(
+                ins_tuple.into_pyobject(py).unwrap().to_string(),
+                "('insert', None, 'c', 1.0)"
+            );
+
+            // Delete
+            let del_op = EditOperation::Delete {
+                source: "d".to_string(),
+                cost: 1.2,
+            };
+            let del_obj = del_op.into_pyobject(py).unwrap();
+            let del_tuple = del_obj.downcast_into::<PyTuple>().unwrap();
+            assert_eq!(
+                del_tuple.into_pyobject(py).unwrap().to_string(),
+                "('delete', 'd', None, 1.2)"
+            );
+
+            // Match
+            let match_op = EditOperation::Match {
+                token: "e".to_string(),
+            };
+            let match_obj = match_op.into_pyobject(py).unwrap();
+            let match_tuple = match_obj.downcast_into::<PyTuple>().unwrap();
+            assert_eq!(
+                match_tuple.into_pyobject(py).unwrap().to_string(),
+                "('match', 'e', 'e', 0.0)"
+            );
+        });
+    }
+
+    #[test]
+    fn test_explain_weighted_levenshtein_distance() {
+        Python::with_gil(|py| {
+            let a = "cat";
+            let b = "car";
+            let empty_costs = PyDict::new(py);
+
+            let result = _explain_weighted_levenshtein_distance(
+                py,
+                a,
+                b,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            let py_list = PyList::new(py, result).unwrap();
+            assert_eq!(py_list.clone().len(), 3);
+
+            let first_op = py_list
+                .clone()
+                .get_item(0)
+                .unwrap()
+                .downcast_into::<PyTuple>()
+                .unwrap();
+            assert_eq!(
+                first_op.get_item(0).unwrap().extract::<&str>().unwrap(),
+                "match"
+            );
+
+            let second_op = py_list
+                .clone()
+                .get_item(1)
+                .unwrap()
+                .downcast_into::<PyTuple>()
+                .unwrap();
+            assert_eq!(
+                second_op.get_item(0).unwrap().extract::<&str>().unwrap(),
+                "match"
+            );
+
+            let third_op = py_list
+                .clone()
+                .get_item(2)
+                .unwrap()
+                .downcast_into::<PyTuple>()
+                .unwrap();
+            assert_eq!(
+                third_op.get_item(0).unwrap().extract::<&str>().unwrap(),
+                "substitute"
+            );
+            assert_eq!(third_op.get_item(3).unwrap().extract::<f64>().unwrap(), 1.0);
+        });
+    }
+
+    #[test]
+    fn test_batch_weighted_levenshtein_distance() {
+        Python::with_gil(|py| {
+            let s = "book";
+            let candidates = vec!["back".to_string(), "books".to_string(), "look".to_string()];
+            let empty_costs = PyDict::new(py);
+
+            let distances = _batch_weighted_levenshtein_distance(
+                s,
+                candidates,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            assert_eq!(distances.len(), 3);
+            assert_eq!(distances, vec![2.0, 1.0, 1.0]);
+        });
+    }
+
+    #[test]
+    fn test_batch_with_empty_candidate_list() {
+        Python::with_gil(|py| {
+            let s = "test";
+            let candidates: Vec<String> = vec![];
+            let empty_costs = PyDict::new(py);
+
+            let distances = _batch_weighted_levenshtein_distance(
+                s,
+                candidates,
+                &empty_costs,
+                &empty_costs,
+                &empty_costs,
+                true,
+                1.0,
+                1.0,
+                1.0,
+            )
+            .unwrap();
+
+            assert!(distances.is_empty());
+        });
+    }
+}

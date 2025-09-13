@@ -28,7 +28,7 @@ jobs:
       - name: Install Just
         uses: extractions/setup-just@v2
       - name: Run Cargo Tests
-        run: cargo test
+        run: cargo test --features python
       - name: Run pytest
         run: |
           # just venv pytest

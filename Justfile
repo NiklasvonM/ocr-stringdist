@@ -8,8 +8,8 @@ pytest:
     uv run pytest --cov=python/ocr_stringdist tests
 
 test:
-    cargo llvm-cov
-    #cargo test
+    cargo llvm-cov --features python
+    #cargo test --features python
 
 mypy:
     uv run mypy .

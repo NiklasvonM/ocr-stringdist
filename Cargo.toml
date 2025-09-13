@@ -14,7 +14,7 @@ name = "ocr_stringdist"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.24.0", features = [] }
+pyo3 = { version = "0.24.0", features = ["auto-initialize"] }
 rayon = "1.10.0"
 
 [features]
