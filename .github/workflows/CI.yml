@@ -25,15 +25,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set Library Path
-        # For PyPy, we need to help the linker find the shared library.
-        # The `pythonLocation` env var is set by the `actions/setup-python` step.
+      - name: Configure PyO3 for PyPy
+        if: startsWith(matrix.python-version, 'pypy')
         run: |
-          if [[ "${{ matrix.python-version }}" == pypy* ]]; then
-            echo "LD_LIBRARY_PATH=${{ env.pythonLocation }}/bin" >> $GITHUB_ENV
-          else
-            echo "LD_LIBRARY_PATH=${{ env.pythonLocation }}/lib" >> $GITHUB_ENV
-          fi
+          # Find path to PyPy-Shared-Library
+          PYPY_LIB_PATH=$(find ${{ env.pythonLocation }} -name "libpypy3-c.so")
+          echo "Found PyPy library at: $PYPY_LIB_PATH"
+          echo "PYO3_PYPY_LIB=$PYPY_LIB_PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$(dirname $PYPY_LIB_PATH)" >> $GITHUB_ENV
       - name: Run Cargo Tests under GDB (PyPy only)
         if: startsWith(matrix.python-version, 'pypy')
         run: |
