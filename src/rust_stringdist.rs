@@ -5,28 +5,40 @@ use crate::weighted_levenshtein::custom_levenshtein_distance_with_cost_maps as c
 use crate::weighted_levenshtein::explain_custom_levenshtein_distance as explain_core;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 use rayon::prelude::*;
 
 impl<'py> IntoPyObject<'py> for EditOperation {
-    type Target = PyAny;
+    type Target = PyTuple;
     type Output = Bound<'py, Self::Target>;
     type Error = pyo3::PyErr;
 
     /// Converts the `EditOperation` into a Python tuple
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        match self {
+        let tuple_result = match self {
             EditOperation::Substitute {
                 source,
                 target,
                 cost,
-            } => ("substitute", Some(source), Some(target), cost),
-            EditOperation::Insert { target, cost } => ("insert", None, Some(target), cost),
-            EditOperation::Delete { source, cost } => ("delete", Some(source), None, cost),
-            EditOperation::Match { token } => ("match", Some(token.clone()), Some(token), 0.0),
-        }
-        .into_pyobject(py)
-        .map(|tuple| tuple.into_any())
+            } => (
+                "substitute",
+                Some(source.as_str()),
+                Some(target.as_str()),
+                cost,
+            )
+                .into_pyobject(py),
+            EditOperation::Insert { target, cost } => {
+                ("insert", None::<&str>, Some(target.as_str()), cost).into_pyobject(py)
+            }
+            EditOperation::Delete { source, cost } => {
+                ("delete", Some(source.as_str()), None::<&str>, cost).into_pyobject(py)
+            }
+            EditOperation::Match { token } => {
+                ("match", Some(token.as_str()), Some(token.as_str()), 0.0).into_pyobject(py)
+            }
+        };
+
+        tuple_result
     }
 }
 
@@ -389,8 +401,7 @@ mod tests {
                 target: "b".to_string(),
                 cost: 0.75,
             };
-            let sub_obj = sub_op.into_pyobject(py).unwrap();
-            let sub_tuple = sub_obj.downcast_into::<PyTuple>().unwrap();
+            let sub_tuple = sub_op.into_pyobject(py).unwrap();
             assert_eq!(
                 sub_tuple.into_pyobject(py).unwrap().to_string(),
                 "('substitute', 'a', 'b', 0.75)"
@@ -401,8 +412,7 @@ mod tests {
                 target: "c".to_string(),
                 cost: 1.0,
             };
-            let ins_obj = ins_op.into_pyobject(py).unwrap();
-            let ins_tuple = ins_obj.downcast_into::<PyTuple>().unwrap();
+            let ins_tuple = ins_op.into_pyobject(py).unwrap();
             assert_eq!(
                 ins_tuple.into_pyobject(py).unwrap().to_string(),
                 "('insert', None, 'c', 1.0)"
@@ -413,8 +423,7 @@ mod tests {
                 source: "d".to_string(),
                 cost: 1.2,
             };
-            let del_obj = del_op.into_pyobject(py).unwrap();
-            let del_tuple = del_obj.downcast_into::<PyTuple>().unwrap();
+            let del_tuple = del_op.into_pyobject(py).unwrap();
             assert_eq!(
                 del_tuple.into_pyobject(py).unwrap().to_string(),
                 "('delete', 'd', None, 1.2)"
@@ -424,8 +433,7 @@ mod tests {
             let match_op = EditOperation::Match {
                 token: "e".to_string(),
             };
-            let match_obj = match_op.into_pyobject(py).unwrap();
-            let match_tuple = match_obj.downcast_into::<PyTuple>().unwrap();
+            let match_tuple = match_op.into_pyobject(py).unwrap();
             assert_eq!(
                 match_tuple.into_pyobject(py).unwrap().to_string(),
                 "('match', 'e', 'e', 0.0)"
