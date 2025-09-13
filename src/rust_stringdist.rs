@@ -409,39 +409,50 @@ mod tests {
     }
 
     #[test]
-    fn test_all_edit_operation_variants_into_pyobject() {
+    fn test_edit_op_substitute_into_pyobject() {
         Python::with_gil(|py| {
-            // Substitute
-            let sub_op = EditOperation::Substitute {
+            let op = EditOperation::Substitute {
                 source: "a".to_string(),
                 target: "b".to_string(),
                 cost: 0.75,
             };
-            let sub_tuple = sub_op.into_pyobject(py).unwrap();
-            assert_eq!(sub_tuple.to_string(), "('substitute', 'a', 'b', 0.75)");
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('substitute', 'a', 'b', 0.75)");
+        });
+    }
 
-            // Insert
-            let ins_op = EditOperation::Insert {
+    #[test]
+    fn test_edit_op_insert_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Insert {
                 target: "c".to_string(),
                 cost: 1.0,
             };
-            let ins_tuple = ins_op.into_pyobject(py).unwrap();
-            assert_eq!(ins_tuple.to_string(), "('insert', None, 'c', 1.0)");
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('insert', None, 'c', 1.0)");
+        });
+    }
 
-            // Delete
-            let del_op = EditOperation::Delete {
+    #[test]
+    fn test_edit_op_delete_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Delete {
                 source: "d".to_string(),
                 cost: 1.2,
             };
-            let del_tuple = del_op.into_pyobject(py).unwrap();
-            assert_eq!(del_tuple.to_string(), "('delete', 'd', None, 1.2)");
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('delete', 'd', None, 1.2)");
+        });
+    }
 
-            // Match
-            let match_op = EditOperation::Match {
+    #[test]
+    fn test_edit_op_match_into_pyobject() {
+        Python::with_gil(|py| {
+            let op = EditOperation::Match {
                 token: "e".to_string(),
             };
-            let match_tuple = match_op.into_pyobject(py).unwrap();
-            assert_eq!(match_tuple.to_string(), "('match', 'e', 'e', 0.0)");
+            let tuple = op.into_pyobject(py).unwrap();
+            assert_eq!(tuple.to_string(), "('match', 'e', 'e', 0.0)");
         });
     }
 
