@@ -20,21 +20,15 @@ impl<'py> IntoPyObject<'py> for EditOperation {
                 source,
                 target,
                 cost,
-            } => (
-                "substitute",
-                Some(source.as_str()),
-                Some(target.as_str()),
-                cost,
-            )
-                .into_pyobject(py),
+            } => ("substitute", Some(source), Some(target), cost).into_pyobject(py),
             EditOperation::Insert { target, cost } => {
-                ("insert", None::<&str>, Some(target.as_str()), cost).into_pyobject(py)
+                ("insert", None::<&str>, Some(target), cost).into_pyobject(py)
             }
             EditOperation::Delete { source, cost } => {
-                ("delete", Some(source.as_str()), None::<&str>, cost).into_pyobject(py)
+                ("delete", Some(source), None::<&str>, cost).into_pyobject(py)
             }
             EditOperation::Match { token } => {
-                ("match", Some(token.as_str()), Some(token.as_str()), 0.0).into_pyobject(py)
+                ("match", Some(token.clone()), Some(token), 0.0).into_pyobject(py)
             }
         };
 
@@ -402,10 +396,7 @@ mod tests {
                 cost: 0.75,
             };
             let sub_tuple = sub_op.into_pyobject(py).unwrap();
-            assert_eq!(
-                sub_tuple.into_pyobject(py).unwrap().to_string(),
-                "('substitute', 'a', 'b', 0.75)"
-            );
+            assert_eq!(sub_tuple.to_string(), "('substitute', 'a', 'b', 0.75)");
 
             // Insert
             let ins_op = EditOperation::Insert {
@@ -413,10 +404,7 @@ mod tests {
                 cost: 1.0,
             };
             let ins_tuple = ins_op.into_pyobject(py).unwrap();
-            assert_eq!(
-                ins_tuple.into_pyobject(py).unwrap().to_string(),
-                "('insert', None, 'c', 1.0)"
-            );
+            assert_eq!(ins_tuple.to_string(), "('insert', None, 'c', 1.0)");
 
             // Delete
             let del_op = EditOperation::Delete {
@@ -424,20 +412,14 @@ mod tests {
                 cost: 1.2,
             };
             let del_tuple = del_op.into_pyobject(py).unwrap();
-            assert_eq!(
-                del_tuple.into_pyobject(py).unwrap().to_string(),
-                "('delete', 'd', None, 1.2)"
-            );
+            assert_eq!(del_tuple.to_string(), "('delete', 'd', None, 1.2)");
 
             // Match
             let match_op = EditOperation::Match {
                 token: "e".to_string(),
             };
             let match_tuple = match_op.into_pyobject(py).unwrap();
-            assert_eq!(
-                match_tuple.into_pyobject(py).unwrap().to_string(),
-                "('match', 'e', 'e', 0.0)"
-            );
+            assert_eq!(match_tuple.to_string(), "('match', 'e', 'e', 0.0)");
         });
     }
 
