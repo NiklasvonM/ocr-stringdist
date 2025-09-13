@@ -47,6 +47,14 @@ jobs:
           echo "PYO3_PYTHON=$PY_EXECUTABLE" >> $GITHUB_ENV
           echo "PYO3_PYPY_LIB=$PY_LIB_FILE" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$PY_LIB_DIR" >> $GITHUB_ENV
+      - name: Run Cargo Tests under GDB (PyPy only)
+        if: startsWith(matrix.python-version, 'pypy')
+        run: |
+          sudo apt-get update && sudo apt-get install -y gdb
+          cargo test --no-run --features python
+          TEST_EXE=$(find target/debug/deps -type f -executable -name "ocr_stringdist-*" ! -name "*.d" | head -n 1)
+          echo "Running test executable under GDB: $TEST_EXE"
+          gdb -ex "run" -ex "bt" --batch --args $TEST_EXE -- --nocapture --test-threads=1
       - name: Run Cargo Tests
         run: cargo test --features python -- --nocapture --test-threads=1
       - name: Run pytest
