@@ -34,6 +34,22 @@ jobs:
           else
             echo "LD_LIBRARY_PATH=${{ env.pythonLocation }}/lib" >> $GITHUB_ENV
           fi
+      - name: Run Cargo Tests under GDB (PyPy only)
+        if: startsWith(matrix.python-version, 'pypy')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb
+          # Compile first without testing to create the executable
+          cargo test --no-run --features python
+          # Find test executable
+          TEST_EXE=$(find target/debug/deps -type f -executable -name "ocr_stringdist-*" ! -name "*.d")
+          echo "Running test executable under GDB: $TEST_EXE"
+          # Execute GDB in batch mode:
+          # -ex "run": start program
+          # -ex "bt": show backtrace on crash
+          # --batch: shutdown GDB after commands
+          # --args: pass arguments to the test executable
+          gdb -ex "run" -ex "bt" --batch --args $TEST_EXE -- --nocapture --test-threads=1
       - name: Run Cargo Tests
         run: cargo test --features python -- --nocapture --test-threads=1
       - name: Run pytest
