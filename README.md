@@ -40,6 +40,7 @@ pip install ocr-stringdist
 - **Explainable Edit Path**: Returns the optimal sequence of edit operations (substitutions, insertions, and deletions) used to transform one string into another.
 - **Substitution of Multiple Characters**: Not just character pairs, but string pairs may be substituted, for example the Korean syllable "이" for the two letters "OI".
 - **Pre-defined OCR Distance Map**: A built-in distance map for common OCR confusions (e.g., "0" vs "O", "1" vs "l", "5" vs "S").
+- **Learnable Costs**: Easily learn costs from a dataset of (OCR string, ground truth string)-pairs.
 - **Unicode Support**: Works with arbitrary Unicode strings.
 - **Best Match Finder**: Includes a utility function `find_best_candidate` to efficiently find the best match from a list based on _any_ distance function.
 
@@ -83,6 +84,12 @@ wl = WeightedLevenshtein(substitution_costs={("In", "h"): 0.5})
 print(wl.distance("hi", "Ini")) # 0.5
 ```
 
+### Learn Costs
+
+```python
+wl = WeightedLevenshtein.learn_from([("Hallo", "Hello")])
+print(wl.substitution_costs[("a", "e")]) # < 1
+```
 
 ## Acknowledgements
 
