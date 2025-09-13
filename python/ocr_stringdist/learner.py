@@ -2,7 +2,7 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Self
+from typing import TYPE_CHECKING, Callable, Optional, Self
 
 if TYPE_CHECKING:
     from .edit_operation import EditOperation
@@ -26,14 +26,7 @@ class TallyCounts:
     insertions: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     deletions: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     source_chars: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
-
-    @property
-    def vocab(self) -> set[str]:
-        source_vocab = set(self.source_chars.keys())
-        insertion_vocab = set(self.insertions.keys())
-        substitution_target_vocab = {target for target, _ in self.substitutions}
-        vocab = source_vocab | insertion_vocab | substitution_target_vocab
-        return vocab
+    vocab: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -68,8 +61,8 @@ class Learner:
     _smoothing_k: float
 
     # These attributes are set during fitting
-    counts: TallyCounts | None = None
-    vocab_size: int | None = None
+    counts: Optional[TallyCounts] = None
+    vocab_size: Optional[int] = None
 
     def __init__(self) -> None:
         self._cost_function = negative_log_likelihood
@@ -144,77 +137,85 @@ class Learner:
         """Tally all edit operations."""
         counts = TallyCounts()
         for op in operations:
+            if op.source_token is not None:
+                counts.vocab.add(op.source_token)
+            if op.target_token is not None:
+                counts.vocab.add(op.target_token)
+
             if op.op_type == "substitute":
                 if op.source_token is None or op.target_token is None:
-                    raise TypeError("Tokens cannot be None for 'substitute'")
-                counts.substitutions[(op.target_token, op.source_token)] += 1
+                    raise ValueError("Tokens cannot be None for 'substitute'")
+                counts.substitutions[(op.source_token, op.target_token)] += 1
                 counts.source_chars[op.source_token] += 1
             elif op.op_type == "delete":
                 if op.source_token is None:
-                    raise TypeError("Source token cannot be None for 'delete'")
+                    raise ValueError("Source token cannot be None for 'delete'")
                 counts.deletions[op.source_token] += 1
                 counts.source_chars[op.source_token] += 1
             elif op.op_type == "insert":
                 if op.target_token is None:
-                    raise TypeError("Target token cannot be None for 'insert'")
+                    raise ValueError("Target token cannot be None for 'insert'")
                 counts.insertions[op.target_token] += 1
             elif op.op_type == "match":
                 if op.source_token is None:
-                    raise TypeError("Source token cannot be None for 'match'")
+                    raise ValueError("Source token cannot be None for 'match'")
                 counts.source_chars[op.source_token] += 1
         return counts
 
-    def _calculate_unscaled_costs(self, counts: TallyCounts, vocab_size: int) -> _Costs:
-        """Calculate probabilities and convert them to unscaled costs."""
-        V = vocab_size
-        k = self._smoothing_k
+    def _calculate_single_scaled_cost(
+        self,
+        observed_count: int,
+        context_total: int,
+        vocab_size: int,
+    ) -> Optional[float]:
+        """Calculates a single scaled cost for an edit operation."""
+        denominator = context_total + self._smoothing_k * vocab_size
+        if denominator <= 0:
+            return None
 
-        sub_costs = {
-            (target, source): self._cost_function(
-                (count + k) / (counts.source_chars[source] + k * V)
-            )
-            for (target, source), count in counts.substitutions.items()
-        }
-
-        del_costs = {
-            source: self._cost_function((count + k) / (counts.source_chars[source] + k * V))
-            for source, count in counts.deletions.items()
-        }
-
-        total_source_chars = sum(counts.source_chars.values())
-        ins_costs = {
-            target: self._cost_function((count + k) / (total_source_chars + k * V))
-            for target, count in counts.insertions.items()
-        }
-
-        return _Costs(sub_costs, del_costs, ins_costs)
-
-    def _normalize_costs(self, unscaled_costs: _Costs, vocab_size: int) -> _Costs:
-        r"""
-        Normalize all costs so that the default cost becomes 1.0.
-
-        Note that we do not follow the mathematical model strictly because
-        we scale by a constant factor instead of the mathematically correct
-        :math:`P(\text{unseen_event} | \text{source}) = k / (N + k*V)`.
-        This is because we want the default cost to be constant across all unseen characters
-        which is incompatible with the mathematical model.
-        """
-        # Probability of a zero-count event after smoothing
-        default_prob = 1.0 / vocab_size
-        scaling_factor = self._cost_function(default_prob)
-
+        # Calculate the cost of an unseen event in this context, used for scaling
+        prob_unseen = self._smoothing_k / denominator
+        scaling_factor = self._cost_function(prob_unseen)
         if scaling_factor <= 0:
-            raise ValueError("Scaling factor must be positive to normalize costs.")
+            return None
 
-        return _Costs(
-            substitutions={
-                op: cost / scaling_factor for op, cost in unscaled_costs.substitutions.items()
-            },
-            insertions={
-                op: cost / scaling_factor for op, cost in unscaled_costs.insertions.items()
-            },
-            deletions={op: cost / scaling_factor for op, cost in unscaled_costs.deletions.items()},
-        )
+        # Calculate the cost for the actually observed event
+        prob_observed = (observed_count + self._smoothing_k) / denominator
+        cost_observed = self._cost_function(prob_observed)
+
+        return cost_observed / scaling_factor
+
+    def _calculate_costs(self, counts: TallyCounts, vocab_size: int) -> _Costs:
+        """
+        Calculates and scales costs for observed operations using a context-dependent
+        scaling factor to ensure the effective default cost is 1.0.
+        """
+
+        # Substitutions
+        sub_costs: dict[tuple[str, str], float] = {}
+        for (source, target), count in counts.substitutions.items():
+            source_char_count = counts.source_chars[source]
+            cost = self._calculate_single_scaled_cost(count, source_char_count, vocab_size)
+            if cost is not None:
+                sub_costs[(source, target)] = cost
+
+        # Insertions
+        ins_costs: dict[str, float] = {}
+        total_chars = sum(counts.source_chars.values())
+        for target, count in counts.insertions.items():
+            cost = self._calculate_single_scaled_cost(count, total_chars, vocab_size)
+            if cost is not None:
+                ins_costs[target] = cost
+
+        # Deletions
+        del_costs: dict[str, float] = {}
+        for source, count in counts.deletions.items():
+            source_char_count = counts.source_chars[source]
+            cost = self._calculate_single_scaled_cost(count, source_char_count, vocab_size)
+            if cost is not None:
+                del_costs[source] = cost
+
+        return _Costs(substitutions=sub_costs, insertions=ins_costs, deletions=del_costs)
 
     def _calculate_operations(self, pairs: Iterable[tuple[str, str]]) -> list["EditOperation"]:
         """Calculate edit operations for all string pairs using unweighted Levenshtein."""
@@ -247,13 +248,12 @@ class Learner:
         if not self.vocab_size:
             return WeightedLevenshtein.unweighted()
 
-        unscaled_costs = self._calculate_unscaled_costs(self.counts, self.vocab_size)
-        scaled_costs = self._normalize_costs(unscaled_costs, self.vocab_size)
+        costs = self._calculate_costs(self.counts, self.vocab_size)
 
         return WeightedLevenshtein(
-            substitution_costs=scaled_costs.substitutions,
-            insertion_costs=scaled_costs.insertions,
-            deletion_costs=scaled_costs.deletions,
+            substitution_costs=costs.substitutions,
+            insertion_costs=costs.insertions,
+            deletion_costs=costs.deletions,
             default_substitution_cost=1.0,
             default_insertion_cost=1.0,
             default_deletion_cost=1.0,
