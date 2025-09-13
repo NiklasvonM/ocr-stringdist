@@ -35,7 +35,7 @@ jobs:
             echo "LD_LIBRARY_PATH=${{ env.pythonLocation }}/lib" >> $GITHUB_ENV
           fi
       - name: Run Cargo Tests
-        run: cargo test --features python
+        run: cargo test --features python -- --nocapture --test-threads=1
       - name: Run pytest
         run: |
           # just venv pytest
