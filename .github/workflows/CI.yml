@@ -37,7 +37,7 @@ jobs:
           . .venv/bin/activate
           .venv/bin/pip install wheel pytest maturin
           maturin develop
-          .venv/bin/pytest
+          .venv/bin/pytest python/tests
 
   linux:
     name: Build Wheels (Linux)

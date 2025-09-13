@@ -53,6 +53,18 @@ from ocr_stringdist.levenshtein import EditOperation
             ],
             WeightedLevenshtein(substitution_costs={("e", "3"): 0.7}),
         ),
+        (
+            "Equal",
+            "Equal",
+            [
+                EditOperation("match", "E", "E", 0.0),
+                EditOperation("match", "q", "q", 0.0),
+                EditOperation("match", "u", "u", 0.0),
+                EditOperation("match", "a", "a", 0.0),
+                EditOperation("match", "l", "l", 0.0),
+            ],
+            WeightedLevenshtein(substitution_costs={}),
+        ),
     ],
 )
 def test_explain_weighted_levenshtein(

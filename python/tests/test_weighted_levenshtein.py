@@ -330,9 +330,6 @@ def test_complex_ocr_scenarios() -> None:
     assert distance <= sub_only_distance
 
 
-# Tests from previous test_ocr_stringdist.py file
-
-
 @pytest.mark.parametrize(
     ["s1", "s2", "cost_map", "expected"],
     [

@@ -34,7 +34,12 @@ pub fn explain_custom_levenshtein_distance(
     deletion_cost_map: &CostMap<SingleTokenKey>,
 ) -> Vec<EditOperation> {
     if source == target {
-        return Vec::new();
+        return source
+            .chars()
+            .map(|c| EditOperation::Match {
+                token: c.to_string(),
+            })
+            .collect();
     }
     let mut processor = LevenshteinProcessor::new(
         source,

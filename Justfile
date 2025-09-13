@@ -5,7 +5,7 @@ venv:
 
 pytest:
     uv run maturin develop
-    uv run pytest --cov=python/ocr_stringdist tests
+    uv run pytest --cov=python/ocr_stringdist python/tests
 
 test:
     cargo llvm-cov --features python
