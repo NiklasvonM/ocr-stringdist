@@ -105,6 +105,19 @@ class WeightedLevenshtein:
 
         return Learner().fit(pairs)
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, WeightedLevenshtein):
+            return NotImplemented
+        return (
+            self.substitution_costs == other.substitution_costs
+            and self.insertion_costs == other.insertion_costs
+            and self.deletion_costs == other.deletion_costs
+            and self.symmetric_substitution == other.symmetric_substitution
+            and self.default_substitution_cost == other.default_substitution_cost
+            and self.default_insertion_cost == other.default_insertion_cost
+            and self.default_deletion_cost == other.default_deletion_cost
+        )
+
 
 def weighted_levenshtein_distance(
     s1: str,
