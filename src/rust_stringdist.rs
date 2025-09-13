@@ -15,24 +15,46 @@ impl<'py> IntoPyObject<'py> for EditOperation {
 
     /// Converts the `EditOperation` into a Python tuple
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let tuple_result = match self {
+        let elements: Vec<PyObject> = match self {
             EditOperation::Substitute {
                 source,
                 target,
                 cost,
-            } => ("substitute", Some(source), Some(target), cost).into_pyobject(py),
+            } => {
+                vec![
+                    "substitute".into_pyobject(py)?.into(),
+                    source.into_pyobject(py)?.into(),
+                    target.into_pyobject(py)?.into(),
+                    cost.into_pyobject(py)?.into(),
+                ]
+            }
             EditOperation::Insert { target, cost } => {
-                ("insert", None::<&str>, Some(target), cost).into_pyobject(py)
+                vec![
+                    "insert".into_pyobject(py)?.into(),
+                    py.None(),
+                    target.into_pyobject(py)?.into(),
+                    cost.into_pyobject(py)?.into(),
+                ]
             }
             EditOperation::Delete { source, cost } => {
-                ("delete", Some(source), None::<&str>, cost).into_pyobject(py)
+                vec![
+                    "delete".into_pyobject(py)?.into(),
+                    source.into_pyobject(py)?.into(),
+                    py.None(),
+                    cost.into_pyobject(py)?.into(),
+                ]
             }
             EditOperation::Match { token } => {
-                ("match", Some(token.clone()), Some(token), 0.0).into_pyobject(py)
+                vec![
+                    "match".into_pyobject(py)?.into(),
+                    token.clone().into_pyobject(py)?.into(),
+                    token.into_pyobject(py)?.into(),
+                    0.0f64.into_pyobject(py)?.into(),
+                ]
             }
         };
 
-        tuple_result
+        PyTuple::new(py, elements)
     }
 }
 
