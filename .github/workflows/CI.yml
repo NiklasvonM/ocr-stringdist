@@ -14,8 +14,9 @@ permissions:
 jobs:
   lint_and_test:
     name: Lint & Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.9", "3.13", "pypy3.11"]
     steps:
