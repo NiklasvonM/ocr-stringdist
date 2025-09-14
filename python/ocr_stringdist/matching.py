@@ -41,11 +41,13 @@ def find_best_candidate(
 
     :Example:
 
-    >>> from ocr_stringdist import weighted_levenshtein_distance as distance
-    >>> s = "apple"
-    >>> candidates = ["apply", "apples", "orange", "appIe"]
-    >>> find_best_match(s, candidates, lambda s1, s2: distance(s1, s2, {("l", "I"): 0.1}))
-    ('appIe', 0.1)
+    .. code-block:: python
+
+        from ocr_stringdist import find_best_candidate, WeightedLevenshtein
+
+        wl = WeightedLevenshtein({("l", "I"): 0.1})
+        find_best_candidate("apple", ["apply", "apples", "orange", "appIe"], wl.distance)
+        # ('appIe', 0.1)
     """
     if not candidates:
         raise ValueError("The 'candidates' iterable cannot be empty.")
