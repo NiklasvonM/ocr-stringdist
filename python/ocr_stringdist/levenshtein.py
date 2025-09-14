@@ -90,16 +90,26 @@ class WeightedLevenshtein:
     @classmethod
     def learn_from(cls, pairs: Iterable[tuple[str, str]]) -> WeightedLevenshtein:
         """
-        Creates an instance by learning costs from a dataset of OCR errors.
+        Creates an instance by learning costs from a dataset of (OCR, ground truth) string pairs.
 
-        This is the recommended, user-friendly way to generate a custom cost model
-        tailored to a specific OCR engine's error patterns. It uses default
-        settings for cost calculation (negative log-likelihood).
+        For more advanced learning configuration, see the `ocr_stringdist.learner.Learner` class.
 
-        For more advanced configuration, see the `ocr_stringdist.learner.Learner` class.
-
-        :param pairs: An iterable of (ocr_string, ground_truth_string) tuples.
+        :param pairs: An iterable of (ocr_string, ground_truth_string) tuples. Correct pairs
+                      are not intended to be filtered; they are needed to learn well-aligned costs.
         :return: A new `WeightedLevenshtein` instance with the learned costs.
+
+        Example::
+
+            from ocr_stringdist import WeightedLevenshtein
+
+            training_data = [
+                ("8N234", "BN234"), # read '8' instead of 'B'
+                ("BJK18", "BJK18"), # correct
+                ("ABC0.", "ABC0"),  # extra '.'
+            ]
+            wl = WeightedLevenshtein.learn_from(training_data)
+            print(wl.substitution_costs) # learned cost for substituting '8' with 'B'
+            print(wl.deletion_costs) # learned cost for deleting '.'
         """
         from .learner import Learner
 

@@ -43,9 +43,7 @@ class Learner:
     This class uses a builder pattern, allowing chaining configuration methods
     before running the final calculation with .fit().
 
-    Usage example:
-
-    .. code-block:: python
+    Example::
 
         from ocr_stringdist.learner import Learner
 

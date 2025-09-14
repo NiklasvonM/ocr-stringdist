@@ -39,9 +39,7 @@ def find_best_candidate(
              calculated distance/score.
     :rtype: tuple[str, float]
 
-    :Example:
-
-    .. code-block:: python
+    Example::
 
         from ocr_stringdist import find_best_candidate, WeightedLevenshtein
 
