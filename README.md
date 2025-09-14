@@ -4,7 +4,7 @@ A Python library for fast string distance calculations that account for common O
 
 Documentation: https://niklasvonm.github.io/ocr-stringdist/
 
-[![PyPI](https://img.shields.io/badge/PyPI-Package-blue)](https://pypi.org/project/ocr-stringdist/)
+[![PyPI badge](https://badge.fury.io/py/ocr-stringdist.svg)](https://badge.fury.io/py/ocr-stringdist)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ## Overview
