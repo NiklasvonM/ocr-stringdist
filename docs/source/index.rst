@@ -55,5 +55,6 @@ Contents
 
    getting-started
    examples
+   cost_learning_model
    api/index
    changelog

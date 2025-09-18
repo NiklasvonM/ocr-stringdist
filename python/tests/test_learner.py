@@ -16,7 +16,6 @@ def learner() -> Learner:
 def test_learner_initialization(learner: Learner) -> None:
     """Tests the default state of a new Learner instance."""
     assert learner._smoothing_k == 1.0
-    assert learner._cost_function is negative_log_likelihood
     assert learner.counts is None
     assert learner.vocab_size is None
 
@@ -24,19 +23,15 @@ def test_learner_initialization(learner: Learner) -> None:
 def test_learner_builder_pattern(learner: Learner) -> None:
     """Tests the chaining of builder methods."""
 
-    def custom_cost_func(p: float) -> float:
-        return 1.0 - p
-
-    learner = learner.with_smoothing(2.5).with_cost_function(custom_cost_func)
+    learner = learner.with_smoothing(2.5)
 
     assert learner._smoothing_k == 2.5
-    assert learner._cost_function is custom_cost_func
 
 
-@pytest.mark.parametrize("k", [0, -1.0, -100])
+@pytest.mark.parametrize("k", [-1.0, -100])
 def test_with_smoothing_invalid_k_raises_error(learner: Learner, k: float) -> None:
-    """Tests that a non-positive smoothing parameter k raises a ValueError."""
-    with pytest.raises(ValueError, match="Smoothing parameter k must be positive."):
+    """Tests that a negative smoothing parameter k raises a ValueError."""
+    with pytest.raises(ValueError, match="Smoothing parameter k must be non-negative."):
         learner.with_smoothing(k)
 
 
@@ -87,46 +82,61 @@ def test_tally_operations_raises_type_error_on_none(learner: Learner, op: EditOp
         learner._tally_operations([op])
 
 
-def test_fit_simple_substitution(learner: Learner) -> None:
-    """Tests fitting on a simple substitution case."""
-    # Data: "a" is misread as "b" once.
-    data = [("b", "a")]
+def test_monotonicity_of_substitution_costs(learner: Learner) -> None:
+    previous_cost = 1.0
+    for i in range(10):
+        data = [("a" * (i + 1), "b" * (i + 1))]
+        wl = learner.fit(data)
+        current_cost = wl.substitution_costs.get(("a", "b"), 1.0)
+        assert current_cost < previous_cost, (
+            f"Cost did not decrease: {current_cost} > {previous_cost}"
+        )
+        previous_cost = current_cost
+
+
+def test_monotonicity_of_insertion_costs(learner: Learner) -> None:
+    previous_cost = 1.0
+    for i in range(10):
+        data = [("", "b" * (i + 1))]
+        wl = learner.fit(data)
+        current_cost = wl.insertion_costs.get("b", 1.0)
+        assert current_cost < previous_cost, (
+            f"Cost did not decrease: {current_cost} > {previous_cost}"
+        )
+        previous_cost = current_cost
+
+
+def test_monotonicity_of_deletion_costs(learner: Learner) -> None:
+    previous_cost = 1.0
+    for i in range(10):
+        data = [("a" * (i + 1), "")]
+        wl = learner.fit(data)
+        current_cost = wl.deletion_costs.get("a", 1.0)
+        assert current_cost < previous_cost, (
+            f"Cost did not decrease: {current_cost} > {previous_cost}"
+        )
+        previous_cost = current_cost
+
+
+def test_maximum_likelihood_estimation(learner: Learner) -> None:
+    data = [("a", "b"), ("", "c"), ("d", "")]
+    wl = learner.with_smoothing(0.0).fit(data)
+    # Every a should be a b in the train data, so cost should be 0.
+    assert wl.substitution_costs.get(("a", "b")) == 0.0
+    # Every d should be deleted in the train data, so cost should be 0.
+    assert wl.deletion_costs.get("d") == 0.0
+    # Insertion cost is not 0 because we don't always insert a 'c'.
+    assert wl.insertion_costs.get("c", 1.0) < 1.0
+
+
+@pytest.mark.parametrize("share", [0.0, 0.1, 0.5, 0.9, 1.0])
+def test_asymptotic_substitution_costs(learner: Learner, share: float) -> None:
+    n_data_points = 100_000
+    n_errors = int(n_data_points * share)
+    data = [("a", "b")] * n_errors + [("a", "a")] * (n_data_points - n_errors)
     wl = learner.fit(data)
-
-    # --- Manual Calculation for ('b' -> 'a') ---
-
-    # 1. Tally Counts:
-    #    - The single operation is substitute('b' -> 'a').
-    #    - counts.substitutions: {('b', 'a'): 1}
-    #    - counts.source_chars: {'b': 1}
-    #    - vocab: {'a', 'b'}, so V = 2
-    #    - k = 1.0 (default smoothing)
-
-    # 2. Context for the operation:
-    #    - Source character is 'b'.
-    #    - N_b (count of source char 'b') = 1.
-    #    - Denominator = N_b + k*V = 1 + 1*2 = 3.
-
-    # 3. Raw cost of the observed event ('b' -> 'a'):
-    #    - P_observed = (count + k) / Denominator = (1 + 1) / 3 = 2/3.
-    #    - Cost_observed = -log(2/3).
-
-    # 4. Context-specific scaling factor for source 'b':
-    #    - This is the cost of an unseen event from 'b'.
-    #    - P_unseen = k / Denominator = 1 / 3.
-    #    - ScalingFactor_b = -log(1/3).
-
-    # 5. Final scaled cost:
-    #    - FinalCost = Cost_observed / ScalingFactor_b
-    expected_cost = -math.log(2 / 3) / -math.log(1 / 3)
-
-    # Ensure that costs were learned only for the observed operation
-    assert len(wl.substitution_costs) == 1
-    actual_cost = wl.substitution_costs[("b", "a")]
-
-    assert actual_cost == pytest.approx(expected_cost)
-    assert actual_cost < 1.0
-    assert wl.default_substitution_cost == 1.0
+    expected_cost = -math.log(share) / math.log(n_data_points) if share > 0 else 1.0
+    assert wl.substitution_costs.get(("a", "b"), 1.0) == pytest.approx(expected_cost, rel=1e-2)
 
 
 def test_fit_with_insertion_and_deletion() -> None:
@@ -149,18 +159,6 @@ def test_fit_no_errors(learner: Learner) -> None:
     data = [("a", "a"), ("b", "b")]
     wl = learner.fit(data)
 
-    # Manual calculation: No error counts, only smoothed probabilities
-    # counts.source_chars: {'a': 1, 'b': 1}
-    # vocab: {'a', 'b'}, V = 2
-    # k = 1.0
-    #
-    # Consider a hypothetical substitution 'a' -> 'x' (unseen)
-    # P(sub 'a'->'x') = (0 + k) / (source_count_a + k*V) = 1 / (1 + 1*2) = 1/3
-    # Cost(sub 'a'->'x') = -log(1/3)
-    # Scaling factor = -log(1/2)
-    # This calculation is for an UNSEEN substitution, which should be the default cost.
-    # The default cost is normalized to 1.0, so the specific value does not matter here.
-    # What matters is that no specific, lower costs are learned.
     assert wl.substitution_costs == {}
     assert wl.insertion_costs == {}
     assert wl.deletion_costs == {}
