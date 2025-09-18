@@ -68,22 +68,27 @@ class Learner:
         r"""
         Sets the smoothing parameter `k`.
 
-        This parameter controls how strongly the model defaults to uniform probabilities
-        by adding a "pseudo-count" `k` to every possible event.
+        This parameter controls how strongly the model defaults to a uniform
+        probability distribution by adding a "pseudo-count" of `k` to every
+        possible event.
 
         :param k: The smoothing factor, which must be a non-negative number.
         :return: The Learner instance for method chaining.
 
         Notes
         -----
-        - **k > 0 (Recommended):** This is additive smoothing. A value of **k = 1.0**
-          is standard **Laplace smoothing**. It ensures that even unseen edit
-          operations are assigned a finite, normalized cost between 0 and 1.
-        - **k = 0:** This corresponds to **Maximum Likelihood Estimation** without any
-          smoothing. The model will have high confidence in the observed frequencies,
-          but it will be unable to assign a cost to edit operations not present in
-          the training data. The resulting costs are an un-normalized measure of
-          "surprisal" and can be greater than 1.0.
+        This parameter allows for a continuous transition between two modes:
+
+        - **k > 0 (recommended):** This enables additive smoothing, with `k = 1.0`
+          being Laplace smoothing. It regularizes the model by assuming no event is impossible.
+          The final costs are a measure of "relative surprisal," normalized by the vocabulary size
+
+        - **k = 0:** This corresponds to a normalized Maximum Likelihood Estimation.
+          Probabilities are derived from the raw observed frequencies. The final costs are
+          normalized using the same logic as the `k > 0` case, making `k=0` the continuous limit
+          of the smoothed model. In this mode, costs can only be calculated for events observed in
+          the training data. Unseen events will receive the default cost, regardless of
+          the value of `calculate_for_unseen` in :meth:`fit`.
         """
         if k < 0:
             raise ValueError("Smoothing parameter k must be non-negative.")
