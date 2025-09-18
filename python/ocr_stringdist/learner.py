@@ -1,3 +1,4 @@
+import itertools
 import math
 from collections import defaultdict
 from collections.abc import Iterable
@@ -118,65 +119,55 @@ class Learner:
                 counts.source_chars[op.source_token] += 1
         return counts
 
-    def _calculate_costs(self, counts: TallyCounts, vocab_size: int) -> _Costs:
+    def _calculate_costs(
+        self, counts: TallyCounts, vocab: set[str], calculate_for_unseen: bool = False
+    ) -> _Costs:
+        """
+        Calculates the costs for edit operations based on tallied counts.
+        """
         sub_costs: dict[tuple[str, str], float] = {}
         ins_costs: dict[str, float] = {}
         del_costs: dict[str, float] = {}
         k = self._smoothing_k
 
+        if k == 0:
+            calculate_for_unseen = False
+
         total_source_chars = sum(counts.source_chars.values())
 
-        if k == 0:
-            # Maximum Likelihood Estimation (no smoothing)
-            # Cost is the negative log of the raw probability.
-            for (source, target), count in counts.substitutions.items():
-                total_count = counts.source_chars[source]
-                if total_count > 0:
-                    sub_costs[(source, target)] = negative_log_likelihood(count / total_count)
+        # Error space sizes for substitutions/deletions and insertions.
+        vocab_size = len(vocab)
+        V_sub_del = vocab_size + 1
+        V_ins = vocab_size
 
-            for source, count in counts.deletions.items():
-                total_count = counts.source_chars[source]
-                if total_count > 0:
-                    del_costs[source] = negative_log_likelihood(count / total_count)
+        # Normalization ceiling Z' = -log(1/V).
+        normalization_ceiling = math.log(V_sub_del) if V_sub_del > 1 else 1.0
 
-            for target, count in counts.insertions.items():
-                if total_source_chars > 0:
-                    ins_costs[target] = negative_log_likelihood(count / total_source_chars)
-
-            return _Costs(substitutions=sub_costs, insertions=ins_costs, deletions=del_costs)
-
-        # Calculate the normalization ceiling (Z)
-        V_errors_sub_del = vocab_size + 1
-        max_unseen_cost = 0.0
-        if counts.source_chars:
-            max_total_count = max(counts.source_chars.values())
-            max_unseen_cost = negative_log_likelihood(k) - negative_log_likelihood(
-                max_total_count + k * V_errors_sub_del
-            )
-
-        unseen_insertion_cost = negative_log_likelihood(k) - negative_log_likelihood(
-            total_source_chars + k * vocab_size
+        # Substitutions
+        sub_iterator = (
+            itertools.product(vocab, vocab) if calculate_for_unseen else counts.substitutions.keys()
         )
-        if unseen_insertion_cost > max_unseen_cost:
-            max_unseen_cost = unseen_insertion_cost
-
-        normalization_ceiling = max_unseen_cost if max_unseen_cost > 0 else 1.0
-
-        # Calculate final, normalized costs
-        for (source, target), count in counts.substitutions.items():
-            total_count = counts.source_chars[source]
-            prob = (count + k) / (total_count + k * V_errors_sub_del)
+        for source, target in sub_iterator:
+            count = counts.substitutions.get((source, target), 0)
+            total_count = counts.source_chars.get(source, 0)
+            prob = (count + k) / (total_count + k * V_sub_del)
             base_cost = negative_log_likelihood(prob)
             sub_costs[(source, target)] = base_cost / normalization_ceiling
 
-        for source, count in counts.deletions.items():
-            total_count = counts.source_chars[source]
-            prob = (count + k) / (total_count + k * V_errors_sub_del)
+        # Deletions
+        del_iterator = vocab if calculate_for_unseen else counts.deletions.keys()
+        for source in del_iterator:
+            count = counts.deletions.get(source, 0)
+            total_count = counts.source_chars.get(source, 0)
+            prob = (count + k) / (total_count + k * V_sub_del)
             base_cost = negative_log_likelihood(prob)
             del_costs[source] = base_cost / normalization_ceiling
 
-        for target, count in counts.insertions.items():
-            prob = (count + k) / (total_source_chars + k * vocab_size)
+        # Insertions
+        ins_iterator = vocab if calculate_for_unseen else counts.insertions.keys()
+        for target in ins_iterator:
+            count = counts.insertions.get(target, 0)
+            prob = (count + k) / (total_source_chars + k * V_ins)
             base_cost = negative_log_likelihood(prob)
             ins_costs[target] = base_cost / normalization_ceiling
 
@@ -194,7 +185,9 @@ class Learner:
         ]
         return all_ops
 
-    def fit(self, pairs: Iterable[tuple[str, str]]) -> "WeightedLevenshtein":
+    def fit(
+        self, pairs: Iterable[tuple[str, str]], *, calculate_for_unseen: bool = False
+    ) -> "WeightedLevenshtein":
         """
         Fits the costs of a WeightedLevenshtein instance to the provided data.
 
@@ -208,6 +201,10 @@ class Learner:
         :doc:`Cost Learning Model <cost_learning_model>` documentation page.
 
         :param pairs: An iterable of (ocr_string, ground_truth_string) tuples.
+        :param calculate_for_unseen: If True (and k > 0), pre-calculates costs for all
+                                     possible edit operations based on the vocabulary.
+                                     If False (default), only calculates costs for operations
+                                     observed in the data.
         :return: A `WeightedLevenshtein` instance with the learned costs.
         """
         from .levenshtein import WeightedLevenshtein
@@ -223,7 +220,7 @@ class Learner:
         if not self.vocab_size:
             return WeightedLevenshtein.unweighted()
 
-        costs = self._calculate_costs(self.counts, self.vocab_size)
+        costs = self._calculate_costs(self.counts, vocab, calculate_for_unseen=calculate_for_unseen)
 
         return WeightedLevenshtein(
             substitution_costs=costs.substitutions,

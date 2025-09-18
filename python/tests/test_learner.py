@@ -135,8 +135,12 @@ def test_asymptotic_substitution_costs(learner: Learner, share: float) -> None:
     n_errors = int(n_data_points * share)
     data = [("a", "b")] * n_errors + [("a", "a")] * (n_data_points - n_errors)
     wl = learner.fit(data)
-    expected_cost = -math.log(share) / math.log(n_data_points) if share > 0 else 1.0
-    assert wl.substitution_costs.get(("a", "b"), 1.0) == pytest.approx(expected_cost, rel=1e-2)
+    vocab_size = learner.vocab_size
+    assert vocab_size is not None
+    expected_cost = -math.log(share) / math.log(vocab_size + 1) if share > 0 else 1.0
+    assert wl.substitution_costs.get(("a", "b"), 1.0) == pytest.approx(
+        expected_cost, rel=1e-3, abs=1e-3
+    )
 
 
 def test_fit_with_insertion_and_deletion() -> None:
