@@ -183,3 +183,60 @@ def test_fit_identical_strings(learner: Learner) -> None:
     assert not wl.insertion_costs
     assert not wl.deletion_costs
     assert learner.vocab_size == len(set("helloworld"))
+
+
+def test_fit_calculate_for_unseen(learner: Learner) -> None:
+    """Tests that `calculate_for_unseen` correctly computes costs for unseen events."""
+    data = [("a", "b")]
+
+    # By default, only seen costs are computed.
+    wl_default = learner.fit(data, calculate_for_unseen=False)
+    assert ("a", "b") in wl_default.substitution_costs
+    assert ("a", "a") not in wl_default.substitution_costs  # Unseen match/sub
+    assert ("b", "a") not in wl_default.substitution_costs  # Unseen sub
+
+    # With the flag, all possible substitutions should have a cost.
+    wl_full = learner.fit(data, calculate_for_unseen=True)
+    assert len(wl_full.substitution_costs) == 4  # ('a','a'), ('a','b'), ('b','a'), ('b','b')
+    assert ("a", "a") in wl_full.substitution_costs
+    assert ("b", "a") in wl_full.substitution_costs
+
+    # The flag should be ignored if k=0
+    wl_mle = learner.with_smoothing(0.0).fit(data, calculate_for_unseen=True)
+    assert len(wl_mle.substitution_costs) == 1
+    assert ("a", "b") in wl_mle.substitution_costs
+
+
+def test_fit_golden_master_values(learner: Learner) -> None:
+    """
+    Tests the end-to-end calculation with a simple case against pre-calculated values.
+    """
+    data = [("a", "b"), ("a", "a")]  # c(a->b)=1, C(a)=2
+    wl = learner.with_smoothing(1.0).fit(data)
+
+    # Manual calculation:
+    # V=2, V_s=3, Z=log(3)
+    # P(a->b) = (c(a->b) + k) / (C(a) + k*V_s) = (1+1) / (2 + 1*3) = 2/5 = 0.4
+    # cost = -log(0.4) / log(3) = 0.916... / 1.098... = 0.834...
+    expected_cost_sub = -math.log(0.4) / math.log(3.0)
+    assert wl.substitution_costs[("a", "b")] == pytest.approx(expected_cost_sub)
+
+    # P(a->a) should be a match, not a substitution in the counts
+    # This means c(a->a) for substitution is 0
+    # P(a->a) = (0+1) / (2 + 1*3) = 1/5 = 0.2
+    # cost = -log(0.2) / log(3) = 1.609... / 1.098... = 1.465...
+    # This test needs calculate_for_unseen=True to work
+    wl_full = learner.fit(data, calculate_for_unseen=True)
+    expected_cost_unseen_sub = -math.log(0.2) / math.log(3.0)
+    assert wl_full.substitution_costs[("a", "a")] == pytest.approx(expected_cost_unseen_sub)
+
+
+def test_asymptotic_unseen_event(learner: Learner) -> None:
+    """Tests the asymptotic cost for an unseen event (share=0)."""
+    n_data_points = 1000
+    data = [("a", "a")] * n_data_points
+    wl = learner.fit(data)
+
+    # The substitution ('a', 'b') was never seen.
+    # The cost dictionary should not contain the key.
+    assert ("a", "b") not in wl.substitution_costs
