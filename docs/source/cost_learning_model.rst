@@ -1,6 +1,6 @@
-===================
-Cost Learning Model
-===================
+=====================
+ Cost Learning Model
+=====================
 
 The ``Learner`` class calculates edit costs using a probabilistic model. The cost of an edit operation is defined by its **surprisal**: a measure of how unlikely that event is based on the training data. This value, derived from the negative log-likelihood :math:`-\log(P(e))`, quantifies the information contained in observing an event :math:`e`.
 

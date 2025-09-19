@@ -2,7 +2,7 @@
  OCR-StringDist
 ================
 
-A Python library for fast string distance calculations that account for common OCR (optical character recognition) errors.
+A Python library to learn, model, explain and correct OCR errors using a fast string distance engine.
 
 :Repository: https://niklasvonm.github.io/ocr-stringdist/
 :Current version: |release|
@@ -20,7 +20,7 @@ Motivation
 
 Standard string distances (like Levenshtein) treat all character substitutions equally. This is suboptimal for text read from images via OCR, where errors like `O` vs `0` are far more common than, say, `O` vs `X`.
 
-OCR-StringDist uses a **weighted Levenshtein distance**, assigning lower costs to common OCR errors.
+OCR-StringDist provides a learnable **weighted Levenshtein distance**, implementing part of the **Noisy Channel model**.
 
 **Example:** Matching against the correct word `CODE`:
 
@@ -34,18 +34,18 @@ OCR-StringDist uses a **weighted Levenshtein distance**, assigning lower costs t
     * :math:`d(\text{"CXDE"}, \text{"CODE"}) = 1.0` (unlikely error, high cost)
     * Result: Correctly identifies `C0DE` as a much closer match.
 
-This makes it ideal for matching potentially incorrect OCR output against known values (e.g., product codes, database entries).
+This makes it ideal for matching potentially incorrect OCR output against known values (e.g., product codes). By combining this *channel model* with a *source model* (e.g., product code frequencies), you can build a complete and robust OCR correction system.
 
 Features
 ========
 
-- **High Performance**: The core logic is implemented in Rust with speed in mind.
-- **Weighted Levenshtein Distance**: Calculates Levenshtein distance with customizable costs for substitutions, insertions, and deletions. Includes an efficient batch version (`batch_weighted_levenshtein_distance`) for comparing one string against many candidates.
-- **Explainable Edit Path**: Returns the optimal sequence of edit operations (substitutions, insertions, and deletions) used to transform one string into another.
+- **Learnable Costs**: Automatically learn substitution, insertion, and deletion costs from a dataset of (OCR string, ground truth string) pairs.
+- **Weighted Levenshtein Distance**: Models OCR error patterns by assigning custom costs to specific edit operations.
+- **High Performance**: Core logic in Rust and a batch_distance function for efficiently comparing one string against thousands of candidates.
 - **Substitution of Multiple Characters**: Not just character pairs, but string pairs may be substituted, for example the Korean syllable "이" for the two letters "OI".
+- **Explainable Edit Path**: Returns the optimal sequence of edit operations (substitutions, insertions, and deletions) used to transform one string into another.
 - **Pre-defined OCR Distance Map**: A built-in distance map for common OCR confusions (e.g., "0" vs "O", "1" vs "l", "5" vs "S").
-- **Unicode Support**: Works with arbitrary Unicode strings.
-- **Best Match Finder**: Includes a utility function `find_best_candidate` to efficiently find the best match from a list based on _any_ distance function.
+- **Full Unicode Support**: Works with arbitrary Unicode strings.
 
 Contents
 ========
@@ -55,6 +55,7 @@ Contents
 
    getting-started
    examples
+   end_to_end_example
    cost_learning_model
    api/index
    changelog

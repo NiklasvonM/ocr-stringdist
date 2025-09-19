@@ -92,7 +92,8 @@ class WeightedLevenshtein:
         """
         Creates an instance by learning costs from a dataset of (OCR, ground truth) string pairs.
 
-        For more advanced learning configuration, see the `ocr_stringdist.learner.Learner` class.
+        For more advanced learning configuration, see the :class:`ocr_stringdist.learner.Learner`
+        class.
 
         :param pairs: An iterable of (ocr_string, ground_truth_string) tuples. Correct pairs
                       are not intended to be filtered; they are needed to learn well-aligned costs.
