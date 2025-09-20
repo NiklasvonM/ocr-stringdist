@@ -4,7 +4,7 @@
 
 A Python library to learn, model, explain and correct OCR errors using a fast string distance engine.
 
-:Repository: https://niklasvonm.github.io/ocr-stringdist/
+:Repository: https://github.com/NiklasvonM/ocr-stringdist
 :Current version: |release|
 
 .. image:: https://img.shields.io/badge/PyPI-Package-blue
