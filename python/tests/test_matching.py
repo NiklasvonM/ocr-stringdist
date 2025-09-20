@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 
 import pytest
-from ocr_stringdist import find_best_candidate, weighted_levenshtein_distance
+from ocr_stringdist import WeightedLevenshtein, find_best_candidate
 
 
 @pytest.mark.parametrize(
@@ -18,20 +18,17 @@ def test_find_best_candidate(
     expected_match: str,
     expected_distance: float,
 ) -> None:
-    actual_match, actual_distance = find_best_candidate(
-        s,
-        candidates,
-        lambda s1, s2: weighted_levenshtein_distance(s1, s2, substitution_costs=cost_map),
-    )
+    wl = WeightedLevenshtein(substitution_costs=cost_map)
+    actual_match, actual_distance = find_best_candidate(s, candidates, wl.distance)
     assert actual_match == expected_match
     assert actual_distance == pytest.approx(expected_distance)
 
 
 def test_find_best_candidate_early_return() -> None:
     # Exact match is present, but a good enough match is found earlier.
-    assert find_best_candidate(
-        "HANNA", ["ANNA", "HANNA"], weighted_levenshtein_distance, early_return_value=2.0
-    ) == ("ANNA", 1.0)
+    wl = WeightedLevenshtein()
+    result = find_best_candidate("HANNA", ["ANNA", "HANNA"], wl.distance, early_return_value=2.0)
+    assert result == ("ANNA", 1.0)
 
 
 def test_find_best_candidate_maximize() -> None:

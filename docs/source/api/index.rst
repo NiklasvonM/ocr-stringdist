@@ -1,16 +1,13 @@
 .. _api_reference:
 
-API Reference
-=============
+===============
+ API Reference
+===============
 
 .. autoclass:: ocr_stringdist.WeightedLevenshtein
    :members:
 
-.. autofunction:: ocr_stringdist.weighted_levenshtein_distance
-.. autofunction:: ocr_stringdist.batch_weighted_levenshtein_distance
-.. autofunction:: ocr_stringdist.explain_weighted_levenshtein
-
-.. autoclass:: ocr_stringdist.learner.Learner
+.. autoclass:: ocr_stringdist.learner.CostLearner
    :members:
 
 .. autoclass:: ocr_stringdist.edit_operation.EditOperation

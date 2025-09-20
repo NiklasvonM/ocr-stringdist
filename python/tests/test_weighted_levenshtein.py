@@ -1,5 +1,5 @@
 import pytest
-from ocr_stringdist import WeightedLevenshtein, weighted_levenshtein_distance
+from ocr_stringdist import WeightedLevenshtein
 
 
 def test_unweighted_levenshtein() -> None:
@@ -236,14 +236,14 @@ def test_custom_weighted_levenshtein(
     del_costs: dict[str, float],
     expected: float,
 ) -> None:
-    """Test the weighted_levenshtein_distance function with various parameters."""
-    assert weighted_levenshtein_distance(
-        source,
-        target,
+    """Test WeightedLevenshtein.wl with various parameters."""
+    wl = WeightedLevenshtein(
         substitution_costs=sub_costs,
         insertion_costs=ins_costs,
         deletion_costs=del_costs,
-    ) == pytest.approx(expected)
+    )
+    distance = wl.distance(source, target)
+    assert distance == pytest.approx(expected)
 
 
 def test_mixed_operations() -> None:
@@ -254,18 +254,16 @@ def test_mixed_operations() -> None:
     ins_costs = {"x": 0.3, "y": 0.4}
     del_costs = {"m": 0.5, "n": 0.6}
 
-    result = weighted_levenshtein_distance(
-        "abmn",
-        "ABxy",
+    distance = WeightedLevenshtein(
         substitution_costs=sub_costs,
         insertion_costs=ins_costs,
         deletion_costs=del_costs,
-    )
+    ).distance("abmn", "ABxy")
 
     # Calculate the expected result based on the Rust implementation
     expected = 2.1  # Substitute 'a'→'A' (0.1) + 'b'→'B' (0.2) + delete 'm' (0.5) +
     # delete 'n' (0.6) + insert 'x' (0.3) + insert 'y' (0.4)
-    assert result == pytest.approx(expected)
+    assert distance == pytest.approx(expected)
 
 
 def test_complex_ocr_scenarios() -> None:
@@ -302,29 +300,22 @@ def test_complex_ocr_scenarios() -> None:
     ocr_result = "Tine rnan ram dovvn tine Ini11 at 1O krn/In."
 
     # Calculate with custom costs
-    distance = weighted_levenshtein_distance(
-        original,
-        ocr_result,
+    distance = WeightedLevenshtein(
         substitution_costs=sub_costs,
         insertion_costs=ins_costs,
         deletion_costs=del_costs,
-    )
+    ).distance(original, ocr_result)
 
     # Calculate with default costs for comparison
-    standard_distance = weighted_levenshtein_distance(
-        original,
-        ocr_result,
-    )
+    standard_distance = WeightedLevenshtein().distance(original, ocr_result)
 
     # The custom distance should be less than the standard distance
     assert distance < standard_distance
 
     # Calculate with just substitution costs for comparison
-    sub_only_distance = weighted_levenshtein_distance(
-        original,
-        ocr_result,
+    sub_only_distance = WeightedLevenshtein(
         substitution_costs=sub_costs,
-    )
+    ).distance(original, ocr_result)
 
     # Verify that adding insertion and deletion costs further improves (reduces) the distance
     assert distance <= sub_only_distance
@@ -363,9 +354,10 @@ def test_complex_ocr_scenarios() -> None:
 def test_weighted_levenshtein_distance(
     s1: str, s2: str, cost_map: dict[tuple[str, str], float], expected: float
 ) -> None:
-    assert weighted_levenshtein_distance(s1, s2, substitution_costs=cost_map) == pytest.approx(
-        expected
-    )
+    assert WeightedLevenshtein(substitution_costs=cost_map).distance(
+        s1,
+        s2,
+    ) == pytest.approx(expected)
 
 
 def test_complex_ocr_substitutions() -> None:
@@ -385,8 +377,8 @@ def test_complex_ocr_substitutions() -> None:
     original = "The man ran down the hill at 10 km/h."
     ocr_result = "Tine rnan ram dovvn tine Ini11 at 1O krn/In."
 
-    distance = weighted_levenshtein_distance(original, ocr_result, substitution_costs=ocr_cost_map)
-    standard_distance = weighted_levenshtein_distance(original, ocr_result, substitution_costs={})
+    distance = WeightedLevenshtein(substitution_costs=ocr_cost_map).distance(original, ocr_result)
+    standard_distance = WeightedLevenshtein.unweighted().distance(original, ocr_result)
     assert standard_distance > distance
 
 
@@ -406,9 +398,10 @@ def test_asymmetric_substitution_costs(s1: str, s2: str, expected: float) -> Non
         ("5", "S"): 0.2,
         ("S", "5"): 0.6,
     }
-    assert weighted_levenshtein_distance(
-        s1, s2, substitution_costs=asymmetric_cost_map, symmetric_substitution=False
-    ) == pytest.approx(expected)
+    assert WeightedLevenshtein(
+        substitution_costs=asymmetric_cost_map,
+        symmetric_substitution=False,
+    ).distance(s1, s2) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize(
@@ -431,17 +424,15 @@ def test_nested_substitution_patterns(s1: str, s2: str, expected: float) -> None
         ("abc", "d"): 0.3,
         ("d", "abc"): 0.3,
     }
-    assert weighted_levenshtein_distance(
-        s1, s2, substitution_costs=nested_cost_map
-    ) == pytest.approx(expected)
+    assert WeightedLevenshtein(
+        substitution_costs=nested_cost_map,
+    ).distance(s1, s2) == pytest.approx(expected)
 
 
 def test_negative_default_cost() -> None:
     invalid_cost = -1.0
-    with pytest.raises(
-        ValueError, match=f"Default cost must be non-negative, got value: {invalid_cost:.0f}"
-    ):
-        weighted_levenshtein_distance("a", "b", default_substitution_cost=invalid_cost)
+    with pytest.raises(ValueError, match=f"must be non-negative, got value: {invalid_cost:.0f}"):
+        WeightedLevenshtein(default_substitution_cost=invalid_cost)
 
 
 @pytest.mark.parametrize(
@@ -461,9 +452,9 @@ def test_negative_default_cost() -> None:
 def test_weighted_levenshtein_distance_with_insertion(
     s1: str, s2: str, insertion_costs: dict[str, float], expected: float
 ) -> None:
-    assert weighted_levenshtein_distance(s1, s2, insertion_costs=insertion_costs) == pytest.approx(
-        expected
-    )
+    assert WeightedLevenshtein(
+        insertion_costs=insertion_costs,
+    ).distance(s1, s2) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize(
@@ -499,9 +490,10 @@ def test_multi_character_insertions_and_deletions(
     s1: str, s2: str, ins_costs: dict[str, float], del_costs: dict[str, float], expected: float
 ) -> None:
     """Test multi-character insertions and deletions."""
-    assert weighted_levenshtein_distance(
-        s1, s2, insertion_costs=ins_costs, deletion_costs=del_costs
-    ) == pytest.approx(expected)
+    assert WeightedLevenshtein(
+        insertion_costs=ins_costs,
+        deletion_costs=del_costs,
+    ).distance(s1, s2) == pytest.approx(expected)
 
 
 def test_complex_multi_character_operations() -> None:
@@ -526,13 +518,11 @@ def test_complex_multi_character_operations() -> None:
     s2 = "xyz789hiworld"
 
     # Calculate with custom costs
-    distance = weighted_levenshtein_distance(
-        s1,
-        s2,
+    distance = WeightedLevenshtein(
         substitution_costs=sub_costs,
         insertion_costs=ins_costs,
         deletion_costs=del_costs,
-    )
+    ).distance(s1, s2)
 
     # Calculate expected:
     # - Substitute "abc" with "xyz" (0.1)
@@ -546,7 +536,16 @@ def test_complex_multi_character_operations() -> None:
     assert distance == pytest.approx(expected)
 
     # Calculate with default costs for comparison
-    standard_distance = weighted_levenshtein_distance(s1, s2)
+    standard_distance = WeightedLevenshtein().distance(s1, s2)
 
     # The custom distance should be less than the standard distance
     assert distance < standard_distance
+
+
+def test_costs_above_default_cost() -> None:
+    configured_cost = 2.0
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): configured_cost}, default_substitution_cost=1.0
+    )
+    actual_cost = wl.distance("a", "b")
+    assert actual_cost == configured_cost
