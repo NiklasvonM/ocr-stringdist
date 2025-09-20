@@ -189,16 +189,25 @@ class WeightedLevenshtein:
         Deserialize from a dictionary.
 
         For the counterpart, see :meth:`WeightedLevenshtein.to_dict`.
+
+        :param data: A dictionary with (not necessarily all of) the following keys:
+                     - "substitution_costs": {"from": str, "to": str, "cost": float}
+                     - "substitution_costs": dict[str, float]
+                     - "deletion_costs": dict[str, float]
+                     - "symmetric_substitution": bool
+                     - "default_substitution_cost": float
+                     - "default_insertion_cost": float
+                     - "default_deletion_cost": float
         """
         # Convert the list of substitution costs back to the required dict format
         sub_costs: dict[tuple[str, str], float] = {
-            (item["from"], item["to"]): item["cost"] for item in data["substitution_costs"]
+            (item["from"], item["to"]): item["cost"] for item in data.get("substitution_costs", {})
         }
 
         return cls(
             substitution_costs=sub_costs,
-            insertion_costs=data["insertion_costs"],
-            deletion_costs=data["deletion_costs"],
+            insertion_costs=data.get("substitution_costs"),
+            deletion_costs=data.get("deletion_costs"),
             symmetric_substitution=data.get("symmetric_substitution", True),
             default_substitution_cost=data.get("default_substitution_cost", 1.0),
             default_insertion_cost=data.get("default_insertion_cost", 1.0),
