@@ -550,3 +550,12 @@ def test_complex_multi_character_operations() -> None:
 
     # The custom distance should be less than the standard distance
     assert distance < standard_distance
+
+
+def test_costs_above_default_cost() -> None:
+    configured_cost = 2.0
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): configured_cost}, default_substitution_cost=1.0
+    )
+    actual_cost = wl.distance("a", "b")
+    assert actual_cost == configured_cost

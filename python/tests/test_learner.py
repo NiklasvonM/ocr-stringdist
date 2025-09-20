@@ -207,9 +207,20 @@ def test_fit_calculate_for_unseen(learner: Learner) -> None:
     assert ("a", "b") in wl_mle.substitution_costs
 
 
-def test_fit_golden_master_values(learner: Learner) -> None:
+def test_asymptotic_unseen_event(learner: Learner) -> None:
+    """Tests the asymptotic cost for an unseen event (share=0)."""
+    n_data_points = 1000
+    data = [("a", "a")] * n_data_points
+    wl = learner.fit(data)
+
+    # The substitution ('a', 'b') was never seen.
+    # The cost dictionary should not contain the key.
+    assert ("a", "b") not in wl.substitution_costs
+
+
+def test_fit_golden_master_substitution(learner: Learner) -> None:
     """
-    Tests the end-to-end calculation with a simple case against pre-calculated values.
+    Tests the substitution cost calculation against pre-calculated values.
     """
     data = [("a", "b"), ("a", "a")]  # c(a->b)=1, C(a)=2
     wl = learner.with_smoothing(1.0).fit(data)
@@ -231,12 +242,45 @@ def test_fit_golden_master_values(learner: Learner) -> None:
     assert wl_full.substitution_costs[("a", "a")] == pytest.approx(expected_cost_unseen_sub)
 
 
-def test_asymptotic_unseen_event(learner: Learner) -> None:
-    """Tests the asymptotic cost for an unseen event (share=0)."""
-    n_data_points = 1000
-    data = [("a", "a")] * n_data_points
-    wl = learner.fit(data)
+def test_fit_golden_master_deletion(learner: Learner) -> None:
+    """
+    Tests the deletion cost calculation against a pre-calculated value.
+    """
+    data = [("ab", "a")]
+    wl = learner.with_smoothing(1.0).fit(data)
 
-    # The substitution ('a', 'b') was never seen.
-    # The cost dictionary should not contain the key.
-    assert ("a", "b") not in wl.substitution_costs
+    # Manual calculation:
+    # Operations: 1x match(a), 1x delete(b)
+    # Counts: deletions['b'] = 1; source_chars['b'] = 1
+    # Vocabulary: {'a', 'b'} -> vocab_size = 2
+    # Probability space size V = vocab_size + 1 = 3
+    # Normalization ceiling Z = log(3)
+    #
+    # P(Delete | Source='b') = (count + k) / (total_source_b + k*V)
+    #                        = (1 + 1.0) / (1 + 1.0 * 3) = 2 / 4 = 0.5
+    #
+    # Final Cost = -log(0.5) / log(3) = 0.693... / 1.098... = 0.630...
+    expected_cost = -math.log(2.0 / 4.0) / math.log(3.0)
+    assert wl.deletion_costs["b"] == pytest.approx(expected_cost)
+
+
+def test_fit_golden_master_insertion(learner: Learner) -> None:
+    """
+    Tests the insertion cost calculation against a pre-calculated value.
+    """
+    data = [("a", "ab")]
+    wl = learner.with_smoothing(1.0).fit(data)
+
+    # Manual calculation:
+    # Operations: 1x match(a), 1x insert(b)
+    # Counts: insertions['b'] = 1; target_chars['b'] = 1
+    # Vocabulary: {'a', 'b'} -> vocab_size = 2
+    # Probability space size V = vocab_size + 1 = 3
+    # Normalization ceiling Z = log(3)
+    #
+    # P(Insert | Target='b') = (count + k) / (total_target_b + k*V)
+    #                        = (1 + 1.0) / (1 + 1.0 * 3) = 2 / 4 = 0.5
+    #
+    # Final Cost = -log(0.5) / log(3) = 0.693... / 1.098... = 0.630...
+    expected_cost = -math.log(2.0 / 4.0) / math.log(3.0)
+    assert wl.insertion_costs["b"] == pytest.approx(expected_cost)
