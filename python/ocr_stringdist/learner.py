@@ -27,6 +27,7 @@ class TallyCounts:
     insertions: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     deletions: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     source_chars: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
+    target_chars: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     vocab: set[str] = field(default_factory=set)
 
 
@@ -103,6 +104,7 @@ class Learner:
             if op.source_token is not None:
                 counts.vocab.add(op.source_token)
             if op.target_token is not None:
+                counts.target_chars[op.target_token] += 1
                 counts.vocab.add(op.target_token)
 
             if op.op_type == "substitute":
@@ -139,41 +141,43 @@ class Learner:
         if k == 0:
             calculate_for_unseen = False
 
-        total_source_chars = sum(counts.source_chars.values())
-
-        # Error space sizes for substitutions/deletions and insertions.
-        vocab_size = len(vocab)
-        V_sub_del = vocab_size + 1
-        V_ins = vocab_size
+        # Error space size V for all conditional probabilities.
+        # The space of possible outcomes for a given source character (from OCR)
+        # includes all vocab characters (for matches/substitutions) plus the empty
+        # character (for deletions). This gives V = len(vocab) + 1.
+        # Symmetrically, the space of outcomes for a given target character (from GT)
+        # includes all vocab characters plus the empty character (for insertions/misses).
+        V = len(vocab) + 1
 
         # Normalization ceiling Z' = -log(1/V).
-        normalization_ceiling = math.log(V_sub_del) if V_sub_del > 1 else 1.0
+        normalization_ceiling = math.log(V) if V > 1 else 1.0
 
         # Substitutions
         sub_iterator = (
             itertools.product(vocab, vocab) if calculate_for_unseen else counts.substitutions.keys()
         )
         for source, target in sub_iterator:
-            count = counts.substitutions.get((source, target), 0)
-            total_count = counts.source_chars.get(source, 0)
-            prob = (count + k) / (total_count + k * V_sub_del)
+            count = counts.substitutions[(source, target)]
+            total_count = counts.source_chars[source]
+            prob = (count + k) / (total_count + k * V)
             base_cost = negative_log_likelihood(prob)
             sub_costs[(source, target)] = base_cost / normalization_ceiling
 
         # Deletions
         del_iterator = vocab if calculate_for_unseen else counts.deletions.keys()
         for source in del_iterator:
-            count = counts.deletions.get(source, 0)
-            total_count = counts.source_chars.get(source, 0)
-            prob = (count + k) / (total_count + k * V_sub_del)
+            count = counts.deletions[source]
+            total_count = counts.source_chars[source]
+            prob = (count + k) / (total_count + k * V)
             base_cost = negative_log_likelihood(prob)
             del_costs[source] = base_cost / normalization_ceiling
 
         # Insertions
         ins_iterator = vocab if calculate_for_unseen else counts.insertions.keys()
         for target in ins_iterator:
-            count = counts.insertions.get(target, 0)
-            prob = (count + k) / (total_source_chars + k * V_ins)
+            count = counts.insertions[target]
+            total_target_count = counts.target_chars[target]
+            prob = (count + k) / (total_target_count + k * V)
             base_cost = negative_log_likelihood(prob)
             ins_costs[target] = base_cost / normalization_ceiling
 
