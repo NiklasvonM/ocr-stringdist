@@ -38,7 +38,7 @@ class _Costs:
     deletions: dict[str, float]
 
 
-class Learner:
+class CostLearner:
     """
     Configures and executes the process of learning Levenshtein costs from data.
 
@@ -47,12 +47,12 @@ class Learner:
 
     Example::
 
-        from ocr_stringdist.learner import Learner
+        from ocr_stringdist import CostLearner
 
         data = [
             ("Hell0", "Hello"),
         ]
-        learner = Learner().with_smoothing(1.0)
+        learner = CostLearner().with_smoothing(1.0)
         wl = learner.fit(data) # Substitution 0 -> o learned with cost < 1.0
     """
 
@@ -66,7 +66,7 @@ class Learner:
     def __init__(self) -> None:
         self._smoothing_k = 1.0
 
-    def with_smoothing(self, k: float) -> "Learner":
+    def with_smoothing(self, k: float) -> "CostLearner":
         r"""
         Sets the smoothing parameter `k`.
 
@@ -75,7 +75,8 @@ class Learner:
         possible event.
 
         :param k: The smoothing factor, which must be a non-negative number.
-        :return: The Learner instance for method chaining.
+        :return: The CostLearner instance for method chaining.
+        :raises ValueError: If k < 0.
 
         Notes
         -----
@@ -205,7 +206,8 @@ class Learner:
         """
         Fits the costs of a WeightedLevenshtein instance to the provided data.
 
-        Note that learning multi-character tokens is not yet supported.
+        Note that learning multi-character tokens is only supported if an initial alignment model
+        is provided that can handle those multi-character tokens.
 
         This method analyzes pairs of strings to learn the costs of edit operations
         based on their observed frequencies. The underlying model calculates costs

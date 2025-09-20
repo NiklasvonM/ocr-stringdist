@@ -5,16 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2025-09-18
+## [1.0.0] - 2025-09-20
 
 ### Changed
 
+- Rename "Learner" to "CostLearner".
 - Rework and fix the cost learning algorithm.
-- Remove `with_cost_function` from `Learner`.
-  
+- Remove `with_cost_function` from `CostLearner`.
+- Remove the functional interface in favour of `WeightedLevenshtein` class.
+
 ### Added
 
-- Add `calculate_for_unseen` parameter to `Learner.fit()`.
+- Add `calculate_for_unseen` parameter to `CostLearner.fit()`.
+- Add input validation in `WeightedLevenshtein.__init__`.
+- Add `to_dict` and `from_dict` methods to `WeightedLevenshtein`.
 
 ## [0.3.0] - 2025-09-14
 

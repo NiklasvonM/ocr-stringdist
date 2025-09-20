@@ -1,4 +1,4 @@
-from ocr_stringdist.learner import Learner
+from ocr_stringdist.learner import CostLearner
 
 data = [
     ("kitten", "sitting"),  # k -> s, e -> i, insert g
@@ -11,7 +11,7 @@ data = [
     ("Include correct data, too.", "Include correct data, too."),
 ]
 
-learner = Learner().with_smoothing(1.0)
+learner = CostLearner().with_smoothing(1.0)
 
 wl = learner.fit(data)
 

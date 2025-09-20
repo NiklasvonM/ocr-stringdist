@@ -16,7 +16,7 @@ First, we collect a representative set of (OCR string, correct ground truth) pai
 
     import json
 
-    import ocr_stringdist as osd
+    from ocr_stringdist import WeightedLevenshtein
 
     # A sample of observed OCR results and their correct counterparts.
     training_data = [
@@ -26,7 +26,7 @@ First, we collect a representative set of (OCR string, correct ground truth) pai
         # ... add more data for better results
     ]
 
-    wl_trained = osd.WeightedLevenshtein.learn_from(training_data)
+    wl_trained = WeightedLevenshtein.learn_from(training_data)
 
     # Insertion/deletions costs are handled similarly
     learned_costs = wl_trained.substitution_costs
@@ -35,12 +35,8 @@ First, we collect a representative set of (OCR string, correct ground truth) pai
 
 
     # Save the learned costs to a file for later use in our application.
-    serializable_costs = [
-        {"source": source, "target": target, "cost": cost}
-        for (source, target), cost in learned_costs.items()
-    ]
     with open("ocr_costs.json", "w") as f:
-        json.dump(serializable_costs, f)
+        json.dump(wl_trained.to_dict(), f, indent=2)
 
 
 This saved `ocr_costs.json` file can, possibly after manual review, be deployed with your application.
@@ -75,7 +71,7 @@ We use the same product database as before and receive a new, imperfect OCR scan
     from dataclasses import dataclass
     from typing import Any
 
-    import ocr_stringdist as osd
+    from ocr_stringdist import WeightedLevenshtein
 
 
     # Setup: Load Data and Pre-trained Costs
@@ -95,13 +91,9 @@ We use the same product database as before and receive a new, imperfect OCR scan
         Product(code="SKU-5A1-MIX", description="5-Speed Hand Mixer", price=49.99, sales_rank=3),
     ]
 
-    # Load costs
+    # Load configuration
     with open("ocr_costs.json") as f:
-        raw_costs: list[dict[str, Any]] = json.load(f)
-    costs: dict[tuple[str, str], float] = {
-        (entry["source"], entry["target"]): entry["cost"] for entry in raw_costs
-    }
-    wl = osd.WeightedLevenshtein(substitution_costs=costs)
+        wl = WeightedLevenshtein.from_dict(json.load(f))
 
 
     # Correction Logic for a New Scan
