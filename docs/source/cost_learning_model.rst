@@ -16,26 +16,20 @@ General Notation
 ~~~~~~~~~~~~~~~~
 
 - :math:`c(e)`: The observed count of a specific event :math:`e`. For example, :math:`c(s \to t)` is the count of source character :math:`s` being substituted by target character :math:`t`.
-- :math:`C(x)`: The total count related to a context :math:`x`. For example, :math:`C(s)` is the total number of times the source character :math:`s` appeared.
+- :math:`C(x)`: The total count of a specific context character :math:`x`. For example, :math:`C(s)` is the total number of times the source character :math:`s` appeared in the OCR outputs.
 - :math:`V`: The total number of unique characters in the vocabulary.
 
-Probability of Substitutions and Deletions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Probability of an Edit Operation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For a substitution :math:`s \to t` or a deletion of :math:`s`, the smoothed conditional probability is:
+The model treats all edit operations within the same probabilistic framework. An insertion is modeled as a substitution from a ground-truth character to an "empty" character, and a deletion is a substitution from an OCR character to an empty character.
 
-.. math:: P(e|s) = \frac{c(e) + k}{C(s) + k \cdot (V+1)}
+This means that for any given character (either from the source or the target), there are :math:`V+1` possible outcomes: a transformation into any of the :math:`V` vocabulary characters or a transformation into an empty character.
 
-Here, the error space for a source character consists of substitutions to any of the :math:`V` vocabulary characters, plus one outcome for deletion, resulting in :math:`V+1` total possibilities.
+The smoothed conditional probability for any edit event :math:`e` given a context character :math:`x` (where :math:`x` is a source character for substitutions/deletions or a target character for insertions) is:
 
-Probability of Insertions
-~~~~~~~~~~~~~~~~~~~~~~~~~
+.. math:: P(e|x) = \frac{c(e) + k}{C(x) + k \cdot (V+1)}
 
-For an insertion of a target character :math:`t`, the probability is conditioned on the entire corpus:
-
-.. math:: P(\text{ins}(t)) = \frac{c(\text{ins}(t)) + k}{C_{\text{total}} + k \cdot V}
-
-Here, :math:`C_{\text{total}}` is the total number of all source characters observed in the data. The error space consists of insertions of any of the :math:`V` vocabulary characters.
 
 Bayesian Interpretation
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -45,20 +39,20 @@ When :math:`k > 0`, the parameter acts as the concentration parameter of a **sym
 Normalization
 ~~~~~~~~~~~~~
 
-The costs are normalized by a ceiling :math:`Z` that depends on the vocabulary size. It is the a priori surprisal of any single error, assuming a uniform probability distribution over all possible outcomes.
+The costs are normalized by a ceiling :math:`Z` that depends on the size of the unified outcome space. It is the a priori surprisal of any single event, assuming a uniform probability distribution over all :math:`V+1` possible outcomes.
 
 .. math:: Z = -\log(\frac{1}{V+1}) = \log(V+1)
 
-This normalization contextualizes the cost relative to the language's complexity. An error in a language with a large alphabet (high :math:`V`, e.g., Chinese) is less surprising than the same error in a language with a small alphabet (e.g., English).
+This normalization contextualizes the cost relative to the complexity of the character set.
 
 Final Cost
 ~~~~~~~~~~
 
 The final cost :math:`w(e)` is the base surprisal scaled by the normalization ceiling:
 
-.. math:: w(e) = \frac{-\log(P(e))}{Z}
+.. math:: w(e) = \frac{-\log(P(e|x))}{Z}
 
-This cost is a relative measure. Costs can be greater than 1.0, which indicates the observed event was even less probable than the uniform a priori assumption.
+This cost is a relative measure. Costs can be greater than 1.0, which indicates the observed event was less probable than the uniform a priori assumption.
 
 Asymptotic Properties
 ~~~~~~~~~~~~~~~~~~~~~
