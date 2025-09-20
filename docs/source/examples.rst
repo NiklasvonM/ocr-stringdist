@@ -77,4 +77,5 @@ The custom costs can be learned from a dataset of pairs of (OCR output, ground t
     distance = learned_wl.distance("Hay", "Hey")
     print(f"Distance with learned costs: {distance}")  # < 1.0
 
-Note that this only supports learning from character-level edits, not multi-character tokens.
+Note that this by default only supports learning from character-level edits.
+If multi-character tokens are to be considered, an `initial_model` that's already configured to know specific multi-character edits needs to be provided.
