@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 if TYPE_CHECKING:
     from .edit_operation import EditOperation
     from .levenshtein import WeightedLevenshtein
+    from .protocols import Aligner
 
 CostFunction = Callable[[float], float]
 
@@ -178,20 +179,24 @@ class Learner:
 
         return _Costs(substitutions=sub_costs, insertions=ins_costs, deletions=del_costs)
 
-    def _calculate_operations(self, pairs: Iterable[tuple[str, str]]) -> list["EditOperation"]:
-        """Calculate edit operations for all string pairs using unweighted Levenshtein."""
-        from .levenshtein import WeightedLevenshtein
+    def _calculate_operations(
+        self, pairs: Iterable[tuple[str, str]], aligner: "Aligner"
+    ) -> list["EditOperation"]:
+        """Calculate edit operations for all string pairs using the provided aligner."""
 
-        unweighted_lev = WeightedLevenshtein.unweighted()
         all_ops = [
             op
             for ocr_str, truth_str in pairs
-            for op in unweighted_lev.explain(ocr_str, truth_str, filter_matches=False)
+            for op in aligner.explain(ocr_str, truth_str, filter_matches=False)
         ]
         return all_ops
 
     def fit(
-        self, pairs: Iterable[tuple[str, str]], *, calculate_for_unseen: bool = False
+        self,
+        pairs: Iterable[tuple[str, str]],
+        *,
+        initial_model: "Aligner | None" = None,
+        calculate_for_unseen: bool = False,
     ) -> "WeightedLevenshtein":
         """
         Fits the costs of a WeightedLevenshtein instance to the provided data.
@@ -206,6 +211,8 @@ class Learner:
         :doc:`Cost Learning Model <cost_learning_model>` documentation page.
 
         :param pairs: An iterable of (ocr_string, ground_truth_string) tuples.
+        :param initial_model: Optional initial model used to align OCR outputs and ground truth
+                              strings. By default, an unweighted Levenshtein distance is used.
         :param calculate_for_unseen: If True (and k > 0), pre-calculates costs for all
                                      possible edit operations based on the vocabulary.
                                      If False (default), only calculates costs for operations
@@ -217,7 +224,10 @@ class Learner:
         if not pairs:
             return WeightedLevenshtein.unweighted()
 
-        all_ops = self._calculate_operations(pairs)
+        if initial_model is None:
+            initial_model = WeightedLevenshtein.unweighted()
+
+        all_ops = self._calculate_operations(pairs, aligner=initial_model)
         self.counts = self._tally_operations(all_ops)
         vocab = self.counts.vocab
         self.vocab_size = len(vocab)
