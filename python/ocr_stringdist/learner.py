@@ -231,6 +231,7 @@ class Learner:
             substitution_costs=costs.substitutions,
             insertion_costs=costs.insertions,
             deletion_costs=costs.deletions,
+            symmetric_substitution=False,
             default_substitution_cost=1.0,
             default_insertion_cost=1.0,
             default_deletion_cost=1.0,
