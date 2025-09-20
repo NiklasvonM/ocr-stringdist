@@ -32,48 +32,6 @@ Define your own substitution costs:
     distance = wl.distance("Churn Bucket", "Chum Bucket")
     print(f"Distance using custom map: {distance}") # 0.5
 
-
-Matching OCR Output Against Candidates
-======================================
-
-This is a primary use case: finding the best match for an OCR string from a list of known possibilities.
-
-.. code-block:: python
-
-    import ocr_stringdist as osd
-
-    ocr_output = "Harnburg"  # OCR potentially misread 'm' as 'rn'
-    possible_cities = ["Harburg", "Hamburg", "Hannover", "Berlin"]
-
-    # Define costs relevant to the potential error
-    wl = osd.WeightedLevenshtein(substitution_costs={("rn", "m"): 0.2})
-
-    # Method 1: Using find_best_candidate
-    best_match_finder, min_distance_finder = osd.find_best_candidate(
-        ocr_output,
-        possible_cities,
-        distance_fun=wl.distance,
-    )
-    print(
-        f"(find_best_candidate) Best match for '{ocr_output}': '{best_match_finder}' "
-        f"(Distance: {min_distance_finder:.2f})"
-    )
-    # Output: (find_best_candidate) Best match for 'Harnburg': 'Hamburg' (Distance: 0.20)
-
-
-    # Method 2: Using WeightedLevenshtein.batch_distance
-    # Generally more efficient when comparing against many candidates.
-    distances: list[float] = wl.batch_distance(ocr_output, possible_cities)
-
-    min_dist_batch = min(distances)
-    best_candidate_batch = possible_cities[distances.index(min_dist_batch)]
-
-    print(
-        f"(Batch) Best match for '{ocr_output}': '{best_candidate_batch}' "
-        f"(Distance: {min_dist_batch:.2f})"
-    )
-    # Output: (Batch) Best match for 'Harnburg': 'Hamburg' (Distance: 0.20)
-
 Explaining Edit Operations
 ==========================
 

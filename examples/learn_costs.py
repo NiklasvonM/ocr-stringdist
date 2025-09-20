@@ -1,4 +1,3 @@
-from ocr_stringdist import WeightedLevenshtein
 from ocr_stringdist.learner import Learner
 
 data = [
@@ -15,7 +14,6 @@ data = [
 learner = Learner().with_smoothing(1.0)
 
 wl = learner.fit(data)
-wl = WeightedLevenshtein.learn_from(data)
 
 print("Learned costs:")
 print("Substitution costs:")

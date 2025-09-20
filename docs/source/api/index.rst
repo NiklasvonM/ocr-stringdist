@@ -1,7 +1,8 @@
 .. _api_reference:
 
-API Reference
-=============
+===============
+ API Reference
+===============
 
 .. autoclass:: ocr_stringdist.WeightedLevenshtein
    :members:
