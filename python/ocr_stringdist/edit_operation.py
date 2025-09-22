@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Literal, Optional
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, Optional
 
 OperationType = Literal["substitute", "insert", "delete", "match"]
 
@@ -14,3 +14,6 @@ class EditOperation:
     source_token: Optional[str]
     target_token: Optional[str]
     cost: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix critical bug in `WeightedLevenshtein.from_dict` when using insertion costs.
 
+### Added
+
+- `from ocr_stringdist import EditOperation`
+- `EditOperation.as_dict()`
+
 ## [1.0.0] - 2025-09-20
 
 ### Changed
