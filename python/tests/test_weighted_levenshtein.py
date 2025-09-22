@@ -549,3 +549,13 @@ def test_costs_above_default_cost() -> None:
     )
     actual_cost = wl.distance("a", "b")
     assert actual_cost == configured_cost
+
+
+def test_serialization() -> None:
+    wl_orig = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.5},
+        insertion_costs={"a": 0.5},
+        deletion_costs={"b": 0.5},
+    )
+    wl_loaded = WeightedLevenshtein.from_dict(wl_orig.to_dict())
+    assert wl_loaded == wl_orig

@@ -207,7 +207,7 @@ class WeightedLevenshtein:
 
         return cls(
             substitution_costs=sub_costs,
-            insertion_costs=data.get("substitution_costs"),
+            insertion_costs=data.get("insertion_costs"),
             deletion_costs=data.get("deletion_costs"),
             symmetric_substitution=data.get("symmetric_substitution", True),
             default_substitution_cost=data.get("default_substitution_cost", 1.0),
