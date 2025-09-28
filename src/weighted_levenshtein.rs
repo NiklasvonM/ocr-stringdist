@@ -63,6 +63,7 @@ struct LevenshteinProcessor<'a> {
     del_map: &'a CostMap<SingleTokenKey>,
     dp: Vec<Vec<f64>>,
     predecessors: Option<Vec<Vec<Predecessor>>>,
+    multi_char_ops: bool,
 }
 
 impl<'a> LevenshteinProcessor<'a> {
@@ -94,6 +95,9 @@ impl<'a> LevenshteinProcessor<'a> {
             } else {
                 None
             },
+            multi_char_ops: sub_map.max_token_length > 1
+                || ins_map.max_token_length > 1
+                || del_map.max_token_length > 1,
         };
         processor.initialize();
         processor
@@ -163,7 +167,9 @@ impl<'a> LevenshteinProcessor<'a> {
         self.dp[i][j] = min_cost;
         self.record(i, j, best_op);
 
-        self.check_multi_char_ops(i, j);
+        if self.multi_char_ops {
+            self.check_multi_char_ops(i, j);
+        }
     }
 
     /// Initialize the first row and column of the DP table.
