@@ -109,6 +109,7 @@ impl<'a> LevenshteinProcessor<'a> {
     }
 
     /// Get the final computed distance.
+    #[inline]
     fn distance(&self) -> f64 {
         self.dp[self.source_chars.len()][self.target_chars.len()]
     }
@@ -121,6 +122,7 @@ impl<'a> LevenshteinProcessor<'a> {
         }
     }
 
+    #[inline]
     fn record(&mut self, i: usize, j: usize, op: Predecessor) {
         if let Some(preds) = self.predecessors.as_mut() {
             preds[i][j] = op;
@@ -128,7 +130,11 @@ impl<'a> LevenshteinProcessor<'a> {
     }
 
     /// Compute the cost for cell (i, j) in the DP table.
+    #[inline]
     fn compute_cell(&mut self, i: usize, j: usize) {
+        let source_char = self.source_chars[i - 1];
+        let target_char = self.target_chars[j - 1];
+
         let source_char_str = self.source_chars[i - 1].to_string();
         let target_char_str = self.target_chars[j - 1].to_string();
 
@@ -139,7 +145,7 @@ impl<'a> LevenshteinProcessor<'a> {
 
         // Check for exact match
         let match_cost = self.dp[i - 1][j - 1];
-        let (mut min_cost, mut best_op) = if source_char_str == target_char_str {
+        let (mut min_cost, mut best_op) = if source_char == target_char {
             (match_cost, Predecessor::Match(1))
         } else {
             (substitution_cost, Predecessor::Substitute(1, 1))
