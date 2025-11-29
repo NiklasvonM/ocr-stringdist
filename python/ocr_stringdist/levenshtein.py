@@ -193,7 +193,7 @@ class WeightedLevenshtein:
         :param data: A dictionary with (not necessarily all of) the following keys:
 
                      - "substitution_costs": {"from": str, "to": str, "cost": float}
-                     - "substitution_costs": dict[str, float]
+                     - "insertion_costs": dict[str, float]
                      - "deletion_costs": dict[str, float]
                      - "symmetric_substitution": bool
                      - "default_substitution_cost": float
