@@ -75,3 +75,46 @@ def test_explain_weighted_levenshtein(
     manually_filtered_operations = [op for op in full_operations if op.op_type != "match"]
     assert filtered_operations == manually_filtered_operations
     assert full_operations == expected_operations
+
+
+def test_explain_transitive_deletion_chain() -> None:
+    """Issue #12: the explain path for '06'->'0' should expose the sub+del chain."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("6", "G"): 0.5},
+        deletion_costs={"G": 0.01},
+        symmetric_substitution=False,
+    )
+    ops = wl.explain("06", "0", filter_matches=False)
+    assert ops == [
+        EditOperation("match", "0", "0", 0.0),
+        EditOperation("substitute", "6", "G", 0.5),
+        EditOperation("delete", "G", None, 0.01),
+    ]
+
+
+def test_explain_transitive_substitution_chain() -> None:
+    """Triangle inequality: sub(a->b, 0.1) + sub(b->c, 0.1) should expand to two ops."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
+        symmetric_substitution=False,
+    )
+    ops = wl.explain("a", "c", filter_matches=False)
+    assert ops == [
+        EditOperation("substitute", "a", "b", 0.1),
+        EditOperation("substitute", "b", "c", 0.1),
+    ]
+
+
+def test_explain_transitive_insertion_chain() -> None:
+    """Insertion analogue: ins('x') + sub('x'->'y') chain should appear in the path."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("x", "y"): 0.2},
+        insertion_costs={"x": 0.1},
+        symmetric_substitution=False,
+    )
+    ops = wl.explain("a", "ay", filter_matches=False)
+    assert ops == [
+        EditOperation("match", "a", "a", 0.0),
+        EditOperation("insert", None, "x", 0.1),
+        EditOperation("substitute", "x", "y", 0.2),
+    ]

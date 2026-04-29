@@ -20,7 +20,7 @@ documentation = "https://niklasvonm.github.io/ocr-stringdist/"
 
 
 [tool.maturin]
-features = ["pyo3/extension-module", "python"]
+features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "ocr_stringdist._rust_stringdist"
 

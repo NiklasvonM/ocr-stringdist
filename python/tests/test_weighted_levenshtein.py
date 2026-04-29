@@ -551,6 +551,56 @@ def test_costs_above_default_cost() -> None:
     assert actual_cost == configured_cost
 
 
+def test_transitive_deletion_chain_distance() -> None:
+    """Issue #12: sub('6'->'G', 0.5) + del('G', 0.01) = 0.51 < direct del('6', 1.0)."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("6", "G"): 0.5},
+        deletion_costs={"G": 0.01},
+        symmetric_substitution=False,
+    )
+    assert wl.distance("06", "0") == pytest.approx(0.51)
+
+
+def test_transitive_insertion_subtitution() -> None:
+    """
+    A->AA->AAA->B
+    """
+    wl = WeightedLevenshtein(
+        insertion_costs={"A": 0.2},
+        substitution_costs={("AAA", "B"): 0.1},
+    )
+    assert wl.distance("A", "B") == pytest.approx(0.5)
+
+
+def test_transitive_insertion_chain_distance() -> None:
+    """Insertion analogue: ins('x', 0.1) + sub('x'->'y', 0.2) = 0.3 < direct ins('y', 1.0)."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("x", "y"): 0.2},
+        insertion_costs={"x": 0.1},
+        symmetric_substitution=False,
+    )
+    assert wl.distance("a", "ay") == pytest.approx(0.3)
+
+
+def test_direct_op_wins_when_chain_more_expensive() -> None:
+    """When the direct cost is already lower than any chain, the result is unchanged."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("6", "G"): 0.5},
+        deletion_costs={"6": 0.2, "G": 0.01},
+        symmetric_substitution=False,
+    )
+    assert wl.distance("06", "0") == pytest.approx(0.2)
+
+
+def test_transitive_substitution_chain_distance() -> None:
+    """Triangle inequality: sub(a→b, 0.1) + sub(b→c, 0.1) = 0.2 < direct default 1.0."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
+        symmetric_substitution=False,
+    )
+    assert wl.distance("a", "c") == pytest.approx(0.2)
+
+
 def test_serialization() -> None:
     wl_orig = WeightedLevenshtein(
         substitution_costs={("a", "b"): 0.5},

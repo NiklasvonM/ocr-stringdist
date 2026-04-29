@@ -3,11 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Optional
 
-from ._rust_stringdist import (
-    _batch_weighted_levenshtein_distance,
-    _explain_weighted_levenshtein_distance,
-    _weighted_levenshtein_distance,
-)
+from ._rust_stringdist import RustLevenshteinCalculator
 from .default_ocr_distances import ocr_distance_map
 from .edit_operation import EditOperation
 
@@ -89,6 +85,15 @@ class WeightedLevenshtein:
         self.default_substitution_cost = default_substitution_cost
         self.default_insertion_cost = default_insertion_cost
         self.default_deletion_cost = default_deletion_cost
+        self._calculator = RustLevenshteinCalculator(
+            substitution_costs=self.substitution_costs,
+            insertion_costs=self.insertion_costs,
+            deletion_costs=self.deletion_costs,
+            symmetric_substitution=symmetric_substitution,
+            default_substitution_cost=default_substitution_cost,
+            default_insertion_cost=default_insertion_cost,
+            default_deletion_cost=default_deletion_cost,
+        )
 
     @classmethod
     def unweighted(cls) -> WeightedLevenshtein:
@@ -97,7 +102,7 @@ class WeightedLevenshtein:
 
     def distance(self, s1: str, s2: str) -> float:
         """Calculates the weighted Levenshtein distance between two strings."""
-        return _weighted_levenshtein_distance(s1, s2, **self.__dict__)  # type: ignore[no-any-return]
+        return self._calculator.distance(s1, s2)  # type: ignore[no-any-return]
 
     def explain(self, s1: str, s2: str, filter_matches: bool = True) -> list[EditOperation]:
         """
@@ -108,7 +113,7 @@ class WeightedLevenshtein:
         :param filter_matches: If True, 'match' operations are excluded from the result.
         :return: List of :class:`EditOperation` instances.
         """
-        raw_path = _explain_weighted_levenshtein_distance(s1, s2, **self.__dict__)
+        raw_path = self._calculator.explain(s1, s2)
         parsed_path = [EditOperation(*op) for op in raw_path]
         if filter_matches:
             return list(filter(lambda op: op.op_type != "match", parsed_path))
@@ -116,7 +121,7 @@ class WeightedLevenshtein:
 
     def batch_distance(self, s: str, candidates: list[str]) -> list[float]:
         """Calculates distances between a string and a list of candidates."""
-        return _batch_weighted_levenshtein_distance(s, candidates, **self.__dict__)  # type: ignore[no-any-return]
+        return self._calculator.batch_distance(s, candidates)  # type: ignore[no-any-return]
 
     @classmethod
     def learn_from(cls, pairs: Iterable[tuple[str, str]]) -> WeightedLevenshtein:
