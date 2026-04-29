@@ -572,6 +572,28 @@ def test_transitive_insertion_subtitution() -> None:
     assert wl.distance("A", "B") == pytest.approx(0.5)
 
 
+def test_transitive_insertion_subtitution2() -> None:
+    """
+    A->AA->AAB->C
+    """
+    wl = WeightedLevenshtein(
+        insertion_costs={"A": 0.2, "B": 0.3},
+        substitution_costs={("AAB", "C"): 0.1},
+    )
+    assert wl.distance("A", "C") == pytest.approx(0.6)
+
+
+def test_transitive_insertion_deletion() -> None:
+    """
+    AC->ABC->C
+    """
+    wl = WeightedLevenshtein(
+        insertion_costs={"B": 0.1},
+        deletion_costs={"AB": 0.0},
+    )
+    assert wl.distance("AC", "C") == pytest.approx(0.1)
+
+
 def test_transitive_insertion_chain_distance() -> None:
     """Insertion analogue: ins('x', 0.1) + sub('x'->'y', 0.2) = 0.3 < direct ins('y', 1.0)."""
     wl = WeightedLevenshtein(

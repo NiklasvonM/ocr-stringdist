@@ -1,8 +1,7 @@
 use crate::cost_map::CostMap;
 use crate::explanation::EditOperation;
 use crate::transitive_costs::{
-    compute_effective_deletion_costs, compute_effective_insertion_costs,
-    compute_effective_substitution_costs, EffectiveSingleTokenCosts, EffectiveSubstitutionCosts,
+    compute_effective_costs_unified, EffectiveSingleTokenCosts, EffectiveSubstitutionCosts,
 };
 use crate::types::{SingleTokenKey, SubstitutionKey};
 use crate::weighted_levenshtein::custom_levenshtein_distance_precomputed;
@@ -33,10 +32,11 @@ impl<'py> IntoPyObject<'py> for EditOperation {
     }
 }
 
-/// Precomputes the transitive closure once and reuses it across all distance calls.
+/// Precomputes effective substitution, insertion, and deletion costs once and reuses them
+/// for every `.distance()` / `.batch_distance()` call.
 ///
-/// Exposed to Python so that `WeightedLevenshtein.__init__` can pay the Dijkstra
-/// cost once and avoid recomputing it on every `.distance()` / `.batch_distance()` call.
+/// Building the calculator runs Dijkstra on the substitution graph and then token-graph
+/// closure passes (see `transitive_costs`), so per-call distance stays linear in string length.
 #[pyclass]
 #[derive(Debug)]
 struct RustLevenshteinCalculator {
@@ -80,9 +80,8 @@ impl RustLevenshteinCalculator {
         let del_map =
             CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost);
 
-        let eff_sub = compute_effective_substitution_costs(&sub_map);
-        let eff_del = compute_effective_deletion_costs(&del_map, &sub_map);
-        let eff_ins = compute_effective_insertion_costs(&ins_map, &sub_map);
+        let (eff_sub, eff_del, eff_ins) =
+            compute_effective_costs_unified(&sub_map, &ins_map, &del_map);
 
         Ok(Self {
             eff_sub,

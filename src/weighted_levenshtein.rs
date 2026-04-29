@@ -391,10 +391,7 @@ impl<'a> LevenshteinProcessor<'a> {
 mod test {
     use super::*;
     use crate::cost_map::CostMap;
-    use crate::transitive_costs::{
-        compute_effective_deletion_costs, compute_effective_insertion_costs,
-        compute_effective_substitution_costs,
-    };
+    use crate::transitive_costs::compute_effective_costs_unified;
     use crate::types::{SingleTokenCostMap, SingleTokenKey, SubstitutionCostMap, SubstitutionKey};
 
     fn assert_approx_eq(a: f64, b: f64, epsilon: f64) {
@@ -425,9 +422,8 @@ mod test {
         ins_map: &CostMap<SingleTokenKey>,
         del_map: &CostMap<SingleTokenKey>,
     ) -> f64 {
-        let eff_sub = compute_effective_substitution_costs(sub_map);
-        let eff_del = compute_effective_deletion_costs(del_map, sub_map);
-        let eff_ins = compute_effective_insertion_costs(ins_map, sub_map);
+        let (eff_sub, eff_del, eff_ins) =
+            compute_effective_costs_unified(sub_map, ins_map, del_map);
         custom_levenshtein_distance_precomputed(source, target, &eff_sub, &eff_ins, &eff_del)
     }
 
@@ -438,9 +434,8 @@ mod test {
         ins_map: &CostMap<SingleTokenKey>,
         del_map: &CostMap<SingleTokenKey>,
     ) -> Vec<EditOperation> {
-        let eff_sub = compute_effective_substitution_costs(sub_map);
-        let eff_del = compute_effective_deletion_costs(del_map, sub_map);
-        let eff_ins = compute_effective_insertion_costs(ins_map, sub_map);
+        let (eff_sub, eff_del, eff_ins) =
+            compute_effective_costs_unified(sub_map, ins_map, del_map);
         explain_custom_levenshtein_precomputed(source, target, &eff_sub, &eff_ins, &eff_del)
     }
 
@@ -969,14 +964,9 @@ mod test {
 
     #[test]
     fn test_check_multi_char_ops_with_empty_maps() {
-        use crate::transitive_costs::{
-            compute_effective_deletion_costs, compute_effective_insertion_costs,
-            compute_effective_substitution_costs,
-        };
         let (sub_map, ins_map, del_map) = create_default_cost_maps();
-        let eff_sub = compute_effective_substitution_costs(&sub_map);
-        let eff_del = compute_effective_deletion_costs(&del_map, &sub_map);
-        let eff_ins = compute_effective_insertion_costs(&ins_map, &sub_map);
+        let (eff_sub, eff_del, eff_ins) =
+            compute_effective_costs_unified(&sub_map, &ins_map, &del_map);
 
         let mut processor =
             LevenshteinProcessor::new("abcd", "xyz", &eff_sub, &eff_ins, &eff_del, true);
