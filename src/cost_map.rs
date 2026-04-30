@@ -98,14 +98,6 @@ impl CostMap<SingleTokenKey> {
 
         Self::new(single_token_costs, default_cost)
     }
-
-    pub fn get_cost(&self, token: &str) -> f64 {
-        self.costs.get(token).copied().unwrap_or(self.default_cost)
-    }
-
-    pub fn has_key(&self, token: &str) -> bool {
-        self.costs.contains_key(token)
-    }
 }
 
 // Common methods for any type of CostMap
@@ -123,8 +115,7 @@ mod tests {
     fn test_single_token_map_default() {
         let cost_map: CostMap<SingleTokenKey> = CostMap::default();
         assert_eq!(cost_map.default_cost(), 1.0);
-        assert_eq!(cost_map.get_cost("any_token"), 1.0);
-        assert!(!cost_map.has_key("any_token"));
+        assert!(cost_map.costs.is_empty());
     }
 
     #[test]
@@ -135,8 +126,8 @@ mod tests {
         let cost_map = CostMap::<SingleTokenKey>::new(custom_costs, 2.0);
 
         assert_eq!(cost_map.default_cost(), 2.0);
-        assert_eq!(cost_map.get_cost("test"), 0.3);
-        assert_eq!(cost_map.get_cost("unknown"), 2.0);
+        assert_eq!(cost_map.costs["test"], 0.3);
+        assert!(!cost_map.costs.contains_key("unknown"));
     }
 
     #[test]

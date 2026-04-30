@@ -623,6 +623,30 @@ def test_transitive_substitution_chain_distance() -> None:
     assert wl.distance("a", "c") == pytest.approx(0.2)
 
 
+@pytest.mark.xfail(
+    reason=(
+        "Optimized transitive seeding does not create arbitrary token-to-token "
+        "shortcuts from full weighted DP alignments."
+    ),
+    strict=True,
+)
+def test_full_dp_seed_would_create_multi_edit_token_shortcut() -> None:
+    """
+    We only seed raw operations and targeted one-edit embedded
+    edges. Because these tokens are longer than the subtoken expansion cap, the
+    intermediate `source + "A"` node is absent, so the shortcut is not present.
+    """
+    source = "abcdefghijklmnopq"  # 17 chars: above MAX_SUBTOKEN_EXPANSION_CHARS
+    bridge = f"{source}AB"
+    target = "Z"
+    wl = WeightedLevenshtein(
+        insertion_costs={"A": 0.2, "B": 0.3},
+        deletion_costs={source: 10.0},  # make `source` a graph token
+        substitution_costs={(bridge, target): 0.1},
+    )
+    assert wl.distance(source, target) == pytest.approx(0.6)
+
+
 def test_serialization() -> None:
     wl_orig = WeightedLevenshtein(
         substitution_costs={("a", "b"): 0.5},

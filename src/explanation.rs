@@ -1,6 +1,6 @@
 /// Represents a single operation in the edit path.
 /// This is the data structure that will be returned to Python.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EditOperation {
     Substitute {
         source: String,

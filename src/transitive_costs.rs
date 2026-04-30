@@ -1,19 +1,21 @@
-//! Effective edit costs under substitution-only transitivity and token-graph closure.
+//! Effective edit costs from a unified token graph.
 //!
-//! The Python-facing calculator uses [`compute_effective_costs_unified`], which
-//! seeds one token graph from raw insertion/deletion/substitution maps and then
-//! runs a single Floyd-Warshall closure. The older Dijkstra-based constructors
-//! remain as small building blocks for tests and for substitution-chain
-//! provenance in Rust-only callers.
-//!
-//! Effective costs are stored in [`EffectiveSingleTokenCosts`] (del/ins) and
-//! [`EffectiveSubstitutionCosts`] (sub), computed once at construction (for example when
-//! building the Rust/Python calculator).
+//! [`compute_effective_costs`] seeds one graph from the raw sub/ins/del maps,
+//! closes it with Floyd-Warshall, and projects distances back: `dist[a][b]` for
+//! substitutions, `dist[a][ε]` for deletions, `dist[ε][b]` for insertions.
 
 use crate::cost_map::CostMap;
+use crate::explanation::EditOperation;
 use crate::types::{SingleTokenKey, SubstitutionKey};
-use crate::weighted_levenshtein::custom_levenshtein_distance_precomputed;
+use crate::weighted_levenshtein::explain_custom_levenshtein_precomputed;
 use std::collections::{HashMap, HashSet};
+
+const NO_NEXT_NODE: u32 = u32::MAX;
+
+// Configured tokens up to this length are expanded into all of their substrings
+// so closure can route through intermediate strings (e.g. `A -> AA -> AAA`).
+// Capped because Floyd-Warshall is O(N³) over the resulting node set.
+const MAX_SUBTOKEN_EXPANSION_CHARS: usize = 16;
 
 // Public types
 
@@ -37,6 +39,9 @@ pub enum EffectiveOpChain {
         /// (insertion) node of the chain.
         terminal_cost: f64,
     },
+
+    /// A cheaper path exists through mixed edit operations.
+    EditPath { operations: Vec<EditOperation> },
 }
 
 /// Precomputed effective single-token operation costs (deletion or insertion).
@@ -53,10 +58,13 @@ pub struct EffectiveSingleTokenCosts {
 impl EffectiveSingleTokenCosts {
     #[inline]
     pub fn get_cost(&self, token: &str) -> f64 {
-        self.entries
-            .get(token)
-            .map(|(c, _)| *c)
-            .unwrap_or(self.default_cost)
+        self.get_explicit_cost(token).unwrap_or(self.default_cost)
+    }
+
+    /// Cost of an explicit entry, or `None` if `token` is not in the map.
+    #[inline]
+    pub fn get_explicit_cost(&self, token: &str) -> Option<f64> {
+        self.entries.get(token).map(|(c, _)| *c)
     }
 
     #[inline]
@@ -87,6 +95,12 @@ pub enum EffectiveSubChain {
         /// Substitution edges `(from, to, cost)` in forward order.
         steps: Vec<(String, String, f64)>,
     },
+
+    /// A cheaper path was found through mixed edit operations.
+    ///
+    /// This is needed when an effective substitution path contains insertions
+    /// or deletions between graph nodes, for example `A -> AAA -> B`.
+    EditPath { operations: Vec<EditOperation> },
 }
 
 /// Precomputed effective substitution costs (all-pairs shortest paths).
@@ -95,7 +109,8 @@ pub enum EffectiveSubChain {
 /// automatically uses the globally cheapest substitution path.
 #[derive(Debug)]
 pub struct EffectiveSubstitutionCosts {
-    entries: HashMap<(String, String), (f64, EffectiveSubChain)>,
+    /// Entries are indexed by source token, then by target token.
+    entries: HashMap<String, HashMap<String, (f64, EffectiveSubChain)>>,
     default_cost: f64,
     pub max_token_length: usize,
 }
@@ -103,16 +118,24 @@ pub struct EffectiveSubstitutionCosts {
 impl EffectiveSubstitutionCosts {
     #[inline]
     pub fn get_cost(&self, source: &str, target: &str) -> f64 {
-        self.entries
-            .get(&(source.to_owned(), target.to_owned()))
-            .map(|(c, _)| *c)
+        self.get_explicit_cost(source, target)
             .unwrap_or(self.default_cost)
+    }
+
+    /// Cost of an explicit entry, or `None` if `(source, target)` is not in the map.
+    #[inline]
+    pub fn get_explicit_cost(&self, source: &str, target: &str) -> Option<f64> {
+        self.entries
+            .get(source)
+            .and_then(|targets| targets.get(target))
+            .map(|(c, _)| *c)
     }
 
     #[inline]
     pub fn get_chain(&self, source: &str, target: &str) -> EffectiveSubChain {
         self.entries
-            .get(&(source.to_owned(), target.to_owned()))
+            .get(source)
+            .and_then(|targets| targets.get(target))
             .map(|(_, ch)| ch.clone())
             .unwrap_or(EffectiveSubChain::Direct)
     }
@@ -120,7 +143,8 @@ impl EffectiveSubstitutionCosts {
     #[inline]
     pub fn has_key(&self, source: &str, target: &str) -> bool {
         self.entries
-            .contains_key(&(source.to_owned(), target.to_owned()))
+            .get(source)
+            .is_some_and(|targets| targets.contains_key(target))
     }
 }
 
@@ -132,36 +156,105 @@ impl EffectiveSubstitutionCosts {
 /// epsilon node (`""`). Keeping this as a newtype instead of a bare `usize`
 /// makes graph indexing sites explicit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-struct NodeId(usize);
+struct NodeId(u32);
 
 impl NodeId {
+    fn new(index: usize) -> Self {
+        assert!(index < NO_NEXT_NODE as usize, "too many token graph nodes");
+        Self(index as u32)
+    }
+
     #[inline]
     fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    fn raw(self) -> u32 {
         self.0
     }
 }
 
-/// All base costs used to seed the unified token graph.
-///
-/// These are direct wrappers around the raw cost maps. They intentionally do
-/// not apply transitive closure; [`CostSolver`] owns the single closure pass.
-struct BaseEffectiveCosts {
-    sub: EffectiveSubstitutionCosts,
-    ins: EffectiveSingleTokenCosts,
-    del: EffectiveSingleTokenCosts,
+#[derive(Debug)]
+struct EdgeResolution {
+    operations: Vec<EditOperation>,
+    substitution_steps: Vec<(String, String, f64)>,
+    all_edges_are_raw_substitutions: bool,
 }
 
-fn raw_effective_substitution_costs(sub_map: &CostMap<SubstitutionKey>) -> EffectiveSubstitutionCosts {
-    let entries = sub_map
-        .costs
-        .iter()
-        .map(|((source, target), &cost)| {
-            (
-                (source.clone(), target.clone()),
-                (cost, EffectiveSubChain::Direct),
-            )
-        })
-        .collect();
+/// Dense square matrix stored in row-major order.
+///
+/// Floyd-Warshall touches the matrix in tight nested loops; a flat vector avoids
+/// the pointer chasing and per-row allocations of `Vec<Vec<T>>`.
+#[derive(Debug)]
+struct Matrix<T> {
+    width: usize,
+    cells: Vec<T>,
+}
+
+impl<T: Clone> Matrix<T> {
+    fn filled(width: usize, value: T) -> Self {
+        Self {
+            width,
+            cells: vec![value; width * width],
+        }
+    }
+}
+
+impl<T> Matrix<T> {
+    #[inline]
+    fn idx(&self, row: NodeId, col: NodeId) -> usize {
+        row.index() * self.width + col.index()
+    }
+
+    #[inline]
+    fn get(&self, row: NodeId, col: NodeId) -> &T {
+        &self.cells[self.idx(row, col)]
+    }
+
+    #[inline]
+    fn set(&mut self, row: NodeId, col: NodeId, value: T) {
+        let idx = self.idx(row, col);
+        self.cells[idx] = value;
+    }
+}
+
+/// Bundle of effective sub/ins/del costs.
+///
+/// Used both as direct wrappers around the raw cost maps (input to closure) and
+/// as the closed-graph projection returned by [`compute_effective_costs`].
+#[derive(Debug)]
+pub struct EffectiveCosts {
+    pub sub: EffectiveSubstitutionCosts,
+    pub ins: EffectiveSingleTokenCosts,
+    pub del: EffectiveSingleTokenCosts,
+}
+
+impl EffectiveCosts {
+    /// Direct wrappers around the raw cost maps, no closure applied.
+    fn raw(
+        sub_map: &CostMap<SubstitutionKey>,
+        ins_map: &CostMap<SingleTokenKey>,
+        del_map: &CostMap<SingleTokenKey>,
+    ) -> Self {
+        Self {
+            sub: raw_effective_substitution_costs(sub_map),
+            ins: raw_effective_single_token_costs(ins_map),
+            del: raw_effective_single_token_costs(del_map),
+        }
+    }
+}
+
+fn raw_effective_substitution_costs(
+    sub_map: &CostMap<SubstitutionKey>,
+) -> EffectiveSubstitutionCosts {
+    let mut entries: HashMap<String, HashMap<String, (f64, EffectiveSubChain)>> = HashMap::new();
+    for ((source, target), &cost) in &sub_map.costs {
+        entries
+            .entry(source.clone())
+            .or_default()
+            .insert(target.clone(), (cost, EffectiveSubChain::Direct));
+    }
 
     EffectiveSubstitutionCosts {
         max_token_length: sub_map
@@ -169,16 +262,14 @@ fn raw_effective_substitution_costs(sub_map: &CostMap<SubstitutionKey>) -> Effec
             .keys()
             .flat_map(|(source, target)| [source.chars().count(), target.chars().count()])
             .max()
-            .unwrap_or(1)
+            .unwrap_or(0)
             .max(1),
         entries,
         default_cost: sub_map.default_cost(),
     }
 }
 
-fn raw_effective_single_token_costs(
-    map: &CostMap<SingleTokenKey>,
-) -> EffectiveSingleTokenCosts {
+fn raw_effective_single_token_costs(map: &CostMap<SingleTokenKey>) -> EffectiveSingleTokenCosts {
     let entries = map
         .costs
         .iter()
@@ -191,11 +282,99 @@ fn raw_effective_single_token_costs(
             .keys()
             .map(|token| token.chars().count())
             .max()
-            .unwrap_or(1)
+            .unwrap_or(0)
             .max(1),
         entries,
         default_cost: map.default_cost(),
     }
+}
+
+/// Adds or improves one directed graph edge and records its first hop.
+fn set_seed_edge(
+    dist: &mut Matrix<f64>,
+    next: &mut Matrix<u32>,
+    source: NodeId,
+    target: NodeId,
+    cost: f64,
+) {
+    if cost < *dist.get(source, target) {
+        dist.set(source, target, cost);
+        next.set(source, target, target.raw());
+    }
+}
+
+/// Adds token-to-token edges that can be made by one explicit insertion/deletion.
+///
+/// This captures paths like `A -> AA` or `AB -> A` without running full
+/// Levenshtein DP for every token pair during graph construction.
+fn seed_embedded_single_token_edges(
+    tokens: &[String],
+    token_to_id: &HashMap<String, NodeId>,
+    base: &EffectiveCosts,
+    dist: &mut Matrix<f64>,
+    next: &mut Matrix<u32>,
+) {
+    let insertions: Vec<(&str, f64)> = base
+        .ins
+        .entries
+        .iter()
+        .map(|(token, (cost, _))| (token.as_str(), *cost))
+        .collect();
+    let deletions: Vec<(&str, f64)> = base
+        .del
+        .entries
+        .iter()
+        .map(|(token, (cost, _))| (token.as_str(), *cost))
+        .collect();
+
+    for source in tokens {
+        let source_id = token_to_id[source.as_str()];
+        for (inserted, cost) in &insertions {
+            for target in insert_token_variants(source, inserted) {
+                if let Some(&target_id) = token_to_id.get(target.as_str()) {
+                    set_seed_edge(dist, next, source_id, target_id, *cost);
+                }
+            }
+        }
+
+        for (deleted, cost) in &deletions {
+            for target in delete_token_variants(source, deleted) {
+                if let Some(&target_id) = token_to_id.get(target.as_str()) {
+                    set_seed_edge(dist, next, source_id, target_id, *cost);
+                }
+            }
+        }
+    }
+}
+
+/// All strings obtainable by inserting `inserted` at a char boundary in `source`.
+fn insert_token_variants(source: &str, inserted: &str) -> Vec<String> {
+    source
+        .char_indices()
+        .map(|(idx, _)| idx)
+        .chain(std::iter::once(source.len()))
+        .map(|idx| {
+            let mut target = String::with_capacity(source.len() + inserted.len());
+            target.push_str(&source[..idx]);
+            target.push_str(inserted);
+            target.push_str(&source[idx..]);
+            target
+        })
+        .collect()
+}
+
+/// All strings obtainable by deleting one exact `deleted` occurrence from `source`.
+fn delete_token_variants(source: &str, deleted: &str) -> Vec<String> {
+    source
+        .match_indices(deleted)
+        .map(|(idx, _)| {
+            let end = idx + deleted.len();
+            let mut target = String::with_capacity(source.len() - deleted.len());
+            target.push_str(&source[..idx]);
+            target.push_str(&source[end..]);
+            target
+        })
+        .collect()
 }
 
 /// Unified state-transition solver for effective edit costs.
@@ -203,48 +382,33 @@ fn raw_effective_single_token_costs(
 /// The graph has one node per relevant token plus a distinguished epsilon node.
 /// Its dense adjacency matrix is initialized with direct weighted token-to-token
 /// distances under the base effective costs, then closed with Floyd-Warshall.
-///
-/// After closure, every operation is a projection from the same matrix:
-/// - substitution `a -> b`: `dist[a][b]`
-/// - deletion `a`: `dist[a][epsilon]`
-/// - insertion `b`: `dist[epsilon][b]`
-struct CostSolver<'a> {
-    sub_map: &'a CostMap<SubstitutionKey>,
-    ins_map: &'a CostMap<SingleTokenKey>,
-    del_map: &'a CostMap<SingleTokenKey>,
-    base: BaseEffectiveCosts,
+struct CostSolver {
+    base: EffectiveCosts,
     token_to_id: HashMap<String, NodeId>,
     tokens: Vec<String>,
     epsilon_id: NodeId,
-    dist: Vec<Vec<f64>>,
-    next: Vec<Vec<Option<NodeId>>>,
+    dist: Matrix<f64>,
+    next: Matrix<u32>,
 }
 
-impl<'a> CostSolver<'a> {
+impl CostSolver {
     fn new(
-        sub_map: &'a CostMap<SubstitutionKey>,
-        ins_map: &'a CostMap<SingleTokenKey>,
-        del_map: &'a CostMap<SingleTokenKey>,
+        sub_map: &CostMap<SubstitutionKey>,
+        ins_map: &CostMap<SingleTokenKey>,
+        del_map: &CostMap<SingleTokenKey>,
     ) -> Self {
-        let base = BaseEffectiveCosts {
-            sub: raw_effective_substitution_costs(sub_map),
-            ins: raw_effective_single_token_costs(ins_map),
-            del: raw_effective_single_token_costs(del_map),
-        };
+        let base = EffectiveCosts::raw(sub_map, ins_map, del_map);
 
-        let tokens = collect_solver_tokens(sub_map, ins_map, del_map, &base);
+        let tokens = collect_solver_tokens(sub_map, ins_map, del_map);
         let token_to_id: HashMap<String, NodeId> = tokens
             .iter()
             .enumerate()
-            .map(|(i, token)| (token.clone(), NodeId(i)))
+            .map(|(i, token)| (token.clone(), NodeId::new(i)))
             .collect();
         let epsilon_id = token_to_id[""];
-        let (dist, next) = Self::seed_distances(&tokens, &base);
+        let (dist, next) = Self::seed_distances(&tokens, &token_to_id, &base);
 
         Self {
-            sub_map,
-            ins_map,
-            del_map,
             base,
             token_to_id,
             tokens,
@@ -254,64 +418,84 @@ impl<'a> CostSolver<'a> {
         }
     }
 
-    fn compute_effective_costs(mut self) -> (
-        EffectiveSubstitutionCosts,
-        EffectiveSingleTokenCosts,
-        EffectiveSingleTokenCosts,
-    ) {
+    fn compute_effective_costs(mut self) -> EffectiveCosts {
         self.close_all_pairs();
-        (
-            self.effective_substitutions(),
-            self.effective_deletions(),
-            self.effective_insertions(),
-        )
+        EffectiveCosts {
+            sub: self.effective_substitutions(),
+            ins: self.effective_insertions(),
+            del: self.effective_deletions(),
+        }
     }
 
-    /// Initialize graph edges from direct weighted token-to-token distances.
+    /// Initializes direct graph edges from raw edit operations.
+    ///
+    /// This deliberately avoids all-pairs weighted DP. The closure pass can
+    /// discover multi-step paths from raw substitutions, epsilon insertions/
+    /// deletions, and the targeted embedded single-token edges.
     fn seed_distances(
         tokens: &[String],
-        base: &BaseEffectiveCosts,
-    ) -> (Vec<Vec<f64>>, Vec<Vec<Option<NodeId>>>) {
+        token_to_id: &HashMap<String, NodeId>,
+        base: &EffectiveCosts,
+    ) -> (Matrix<f64>, Matrix<u32>) {
         let n = tokens.len();
-        let mut dist = vec![vec![f64::INFINITY; n]; n];
-        let mut next = vec![vec![None; n]; n];
-        for source in 0..n {
-            dist[source][source] = 0.0;
-            next[source][source] = Some(NodeId(source));
-            for target in 0..n {
-                if source == target {
-                    continue;
-                }
-                dist[source][target] = custom_levenshtein_distance_precomputed(
-                    &tokens[source],
-                    &tokens[target],
-                    &base.sub,
-                    &base.ins,
-                    &base.del,
-                );
-                if dist[source][target].is_finite() {
-                    next[source][target] = Some(NodeId(target));
-                }
+        let mut dist = Matrix::filled(n, f64::INFINITY);
+        let mut next = Matrix::filled(n, NO_NEXT_NODE);
+        let epsilon = token_to_id[""];
+
+        for node in 0..n {
+            let node = NodeId::new(node);
+            set_seed_edge(&mut dist, &mut next, node, node, 0.0);
+        }
+
+        for (source, targets) in &base.sub.entries {
+            let source_id = token_to_id[source.as_str()];
+            for (target, (cost, _)) in targets {
+                let target_id = token_to_id[target.as_str()];
+                set_seed_edge(&mut dist, &mut next, source_id, target_id, *cost);
             }
         }
+
+        for (token, (cost, _)) in &base.ins.entries {
+            set_seed_edge(
+                &mut dist,
+                &mut next,
+                epsilon,
+                token_to_id[token.as_str()],
+                *cost,
+            );
+        }
+
+        for (token, (cost, _)) in &base.del.entries {
+            set_seed_edge(
+                &mut dist,
+                &mut next,
+                token_to_id[token.as_str()],
+                epsilon,
+                *cost,
+            );
+        }
+
+        seed_embedded_single_token_edges(tokens, token_to_id, base, &mut dist, &mut next);
         (dist, next)
     }
 
     /// Floyd-Warshall all-pairs shortest paths over the unified graph.
-    #[allow(clippy::needless_range_loop)] // Indexed `target` avoids simultaneous borrows of `dist`.
     fn close_all_pairs(&mut self) {
-        let n = self.dist.len();
+        let n = self.dist.width;
         for via in 0..n {
+            let via = NodeId::new(via);
             for source in 0..n {
-                let source_to_via = self.dist[source][via];
+                let source = NodeId::new(source);
+                let source_to_via = *self.dist.get(source, via);
                 if !source_to_via.is_finite() {
                     continue;
                 }
                 for target in 0..n {
-                    let candidate = source_to_via + self.dist[via][target];
-                    if candidate < self.dist[source][target] {
-                        self.dist[source][target] = candidate;
-                        self.next[source][target] = self.next[source][via];
+                    let target = NodeId::new(target);
+                    let candidate = source_to_via + *self.dist.get(via, target);
+                    if candidate < *self.dist.get(source, target) {
+                        self.dist.set(source, target, candidate);
+                        self.next.set(source, target, *self.next.get(source, via));
                     }
                 }
             }
@@ -323,15 +507,21 @@ impl<'a> CostSolver<'a> {
     }
 
     fn cost(&self, source: NodeId, target: NodeId) -> f64 {
-        self.dist[source.index()][target.index()]
+        *self.dist.get(source, target)
     }
 
     fn path(&self, source: NodeId, target: NodeId) -> Option<Vec<NodeId>> {
-        self.next[source.index()][target.index()]?;
+        if *self.next.get(source, target) == NO_NEXT_NODE {
+            return None;
+        }
         let mut path = vec![source];
         let mut current = source;
         while current != target {
-            current = self.next[current.index()][target.index()]?;
+            let next = *self.next.get(current, target);
+            if next == NO_NEXT_NODE {
+                return None;
+            }
+            current = NodeId(next);
             path.push(current);
         }
         Some(path)
@@ -341,40 +531,37 @@ impl<'a> CostSolver<'a> {
         &self.tokens[node.index()]
     }
 
+    /// Projects closed token-to-token distances into effective substitutions.
     fn effective_substitutions(&self) -> EffectiveSubstitutionCosts {
-        let mut entries: HashMap<(String, String), (f64, EffectiveSubChain)> = HashMap::new();
+        let mut entries: HashMap<String, HashMap<String, (f64, EffectiveSubChain)>> =
+            HashMap::new();
         for source in self.non_epsilon_tokens() {
             for target in self.non_epsilon_tokens() {
                 if source == target {
                     continue;
                 }
                 let best = self.cost(self.id(source), self.id(target));
-                let raw_direct = self
-                    .sub_map
-                    .costs
-                    .get(&(source.clone(), target.clone()))
-                    .copied()
-                    .unwrap_or(self.base.sub.default_cost);
-                let in_raw_map = self
-                    .sub_map
-                    .costs
-                    .contains_key(&(source.clone(), target.clone()));
+                let raw_direct = self.raw_substitution_cost(source, target);
+                let in_raw_map = raw_direct.is_some();
+                let direct_cost = raw_direct.unwrap_or(self.base.sub.default_cost);
 
                 if !in_raw_map && best >= self.base.sub.default_cost {
                     continue;
                 }
 
-                if best < raw_direct {
+                let entry = if best < direct_cost {
                     let chain = self
                         .substitution_chain(self.id(source), self.id(target))
                         .unwrap_or(EffectiveSubChain::Direct);
-                    entries.insert((source.clone(), target.clone()), (best, chain));
+                    (best, chain)
                 } else {
-                    entries.insert(
-                        (source.clone(), target.clone()),
-                        (raw_direct, EffectiveSubChain::Direct),
-                    );
-                }
+                    (direct_cost, EffectiveSubChain::Direct)
+                };
+
+                entries
+                    .entry(source.to_owned())
+                    .or_default()
+                    .insert(target.to_owned(), entry);
             }
         }
 
@@ -385,19 +572,21 @@ impl<'a> CostSolver<'a> {
         }
     }
 
+    /// Projects token-to-epsilon distances into effective deletions.
     fn effective_deletions(&self) -> EffectiveSingleTokenCosts {
         let mut entries: HashMap<String, (f64, EffectiveOpChain)> = HashMap::new();
         for token in self.non_epsilon_tokens() {
             let node = self.id(token);
             let best = self.cost(node, self.epsilon_id);
             let direct = self.base.del.get_cost(token);
-            if self.del_map.has_key(token) || self.base.del.has_key(token) || best < direct {
+            if self.base.del.has_key(token) || best < direct {
                 let chain = if best < direct {
-                    self.deletion_chain(node).unwrap_or(EffectiveOpChain::Direct)
+                    self.deletion_chain(node)
+                        .unwrap_or(EffectiveOpChain::Direct)
                 } else {
                     self.base.del.get_chain(token)
                 };
-                entries.insert(token.clone(), (best, chain));
+                entries.insert(token.to_owned(), (best, chain));
             }
         }
 
@@ -408,49 +597,56 @@ impl<'a> CostSolver<'a> {
         }
     }
 
+    /// Builds the explanation chain for an effective substitution.
     fn substitution_chain(&self, source: NodeId, target: NodeId) -> Option<EffectiveSubChain> {
         let path = self.path(source, target)?;
         if path.len() <= 2 {
             return Some(EffectiveSubChain::Direct);
         }
 
-        let mut steps = Vec::new();
-        for edge in path.windows(2) {
-            let from = self.token(edge[0]);
-            let to = self.token(edge[1]);
-            let cost = self.raw_substitution_cost(from, to)?;
-            steps.push((from.to_string(), to.to_string(), cost));
-        }
+        let resolution = self.resolve_path_edges(&path);
 
-        Some(EffectiveSubChain::Via { steps })
+        if resolution.all_edges_are_raw_substitutions {
+            Some(EffectiveSubChain::Via {
+                steps: resolution.substitution_steps,
+            })
+        } else {
+            Some(EffectiveSubChain::EditPath {
+                operations: resolution.operations,
+            })
+        }
     }
 
+    /// Builds the explanation chain for an effective deletion.
     fn deletion_chain(&self, source: NodeId) -> Option<EffectiveOpChain> {
         let path = self.path(source, self.epsilon_id)?;
         if path.len() <= 2 {
             return Some(EffectiveOpChain::Direct);
         }
 
+        let mut resolution = self.resolve_path_edges(&path[..path.len() - 1]);
+
         let terminal = *path.get(path.len() - 2)?;
         let terminal_token = self.token(terminal);
-        let terminal_cost = self.del_map.get_cost(terminal_token);
-        if !self.del_map.has_key(terminal_token) {
-            return None;
-        }
+        let terminal_cost = self.base.del.get_explicit_cost(terminal_token)?;
 
-        let mut steps = Vec::new();
-        for edge in path[..path.len() - 1].windows(2) {
-            let from = self.token(edge[0]);
-            let to = self.token(edge[1]);
-            let cost = self.raw_substitution_cost(from, to)?;
-            steps.push((from.to_string(), to.to_string(), cost));
+        if resolution.all_edges_are_raw_substitutions {
+            Some(EffectiveOpChain::Via {
+                steps: resolution.substitution_steps,
+                terminal_cost,
+            })
+        } else {
+            resolution.operations.push(EditOperation::Delete {
+                source: terminal_token.to_string(),
+                cost: terminal_cost,
+            });
+            Some(EffectiveOpChain::EditPath {
+                operations: resolution.operations,
+            })
         }
-        Some(EffectiveOpChain::Via {
-            steps,
-            terminal_cost,
-        })
     }
 
+    /// Builds the explanation chain for an effective insertion.
     fn insertion_chain(&self, target: NodeId) -> Option<EffectiveOpChain> {
         let path = self.path(self.epsilon_id, target)?;
         if path.len() <= 2 {
@@ -459,44 +655,78 @@ impl<'a> CostSolver<'a> {
 
         let initial = *path.get(1)?;
         let initial_token = self.token(initial);
-        let terminal_cost = self.ins_map.get_cost(initial_token);
-        if !self.ins_map.has_key(initial_token) {
-            return None;
-        }
+        let terminal_cost = self.base.ins.get_explicit_cost(initial_token)?;
 
-        let mut steps = Vec::new();
-        for edge in path[1..].windows(2) {
+        let mut operations = vec![EditOperation::Insert {
+            target: initial_token.to_string(),
+            cost: terminal_cost,
+        }];
+        let mut resolution = self.resolve_path_edges(&path[1..]);
+
+        if resolution.all_edges_are_raw_substitutions {
+            Some(EffectiveOpChain::Via {
+                steps: resolution.substitution_steps,
+                terminal_cost,
+            })
+        } else {
+            operations.append(&mut resolution.operations);
+            Some(EffectiveOpChain::EditPath { operations })
+        }
+    }
+
+    /// Converts graph edges back into user-visible edit operations.
+    fn resolve_path_edges(&self, path: &[NodeId]) -> EdgeResolution {
+        let mut operations = Vec::new();
+        let mut substitution_steps = Vec::new();
+        let mut all_edges_are_raw_substitutions = true;
+
+        for edge in path.windows(2) {
             let from = self.token(edge[0]);
             let to = self.token(edge[1]);
-            let cost = self.raw_substitution_cost(from, to)?;
-            steps.push((from.to_string(), to.to_string(), cost));
+            if let Some(cost) = self.raw_substitution_cost(from, to) {
+                substitution_steps.push((from.to_owned(), to.to_owned(), cost));
+                operations.push(EditOperation::Substitute {
+                    source: from.to_owned(),
+                    target: to.to_owned(),
+                    cost,
+                });
+            } else {
+                all_edges_are_raw_substitutions = false;
+                operations.extend(
+                    explain_custom_levenshtein_precomputed(from, to, &self.base)
+                        .into_iter()
+                        .filter(|op| !matches!(op, EditOperation::Match { .. })),
+                );
+            }
         }
-        Some(EffectiveOpChain::Via {
-            steps,
-            terminal_cost,
-        })
+
+        EdgeResolution {
+            operations,
+            substitution_steps,
+            all_edges_are_raw_substitutions,
+        }
     }
 
+    /// Raw substitution edge cost (pre-closure), or `None` if not configured.
     fn raw_substitution_cost(&self, source: &str, target: &str) -> Option<f64> {
-        self.sub_map
-            .costs
-            .get(&(source.to_owned(), target.to_owned()))
-            .copied()
+        self.base.sub.get_explicit_cost(source, target)
     }
 
+    /// Projects epsilon-to-token distances into effective insertions.
     fn effective_insertions(&self) -> EffectiveSingleTokenCosts {
         let mut entries: HashMap<String, (f64, EffectiveOpChain)> = HashMap::new();
         for token in self.non_epsilon_tokens() {
             let node = self.id(token);
             let best = self.cost(self.epsilon_id, node);
             let direct = self.base.ins.get_cost(token);
-            if self.ins_map.has_key(token) || self.base.ins.has_key(token) || best < direct {
+            if self.base.ins.has_key(token) || best < direct {
                 let chain = if best < direct {
-                    self.insertion_chain(node).unwrap_or(EffectiveOpChain::Direct)
+                    self.insertion_chain(node)
+                        .unwrap_or(EffectiveOpChain::Direct)
                 } else {
                     self.base.ins.get_chain(token)
                 };
-                entries.insert(token.clone(), (best, chain));
+                entries.insert(token.to_owned(), (best, chain));
             }
         }
 
@@ -507,42 +737,43 @@ impl<'a> CostSolver<'a> {
         }
     }
 
-    fn non_epsilon_tokens(&self) -> impl Iterator<Item = &String> {
-        self.tokens.iter().filter(|token| !token.is_empty())
+    fn non_epsilon_tokens(&self) -> impl Iterator<Item = &str> {
+        self.tokens
+            .iter()
+            .filter(|token| !token.is_empty())
+            .map(String::as_str)
     }
 }
 
+/// Collects graph nodes and bounded substrings needed for transitive closure.
 fn collect_solver_tokens(
     sub_map: &CostMap<SubstitutionKey>,
     ins_map: &CostMap<SingleTokenKey>,
     del_map: &CostMap<SingleTokenKey>,
-    base: &BaseEffectiveCosts,
 ) -> Vec<String> {
     let mut tokens: HashSet<String> = HashSet::new();
     tokens.insert(String::new()); // epsilon
     tokens.extend(ins_map.costs.keys().cloned());
     tokens.extend(del_map.costs.keys().cloned());
-    tokens.extend(base.ins.entries.keys().cloned());
-    tokens.extend(base.del.entries.keys().cloned());
     tokens.extend(
         sub_map
             .costs
             .keys()
             .flat_map(|(source, target)| [source.clone(), target.clone()]),
     );
-    tokens.extend(
-        base.sub
-            .entries
-            .keys()
-            .flat_map(|(source, target)| [source.clone(), target.clone()]),
-    );
 
     let originals: Vec<String> = tokens.iter().cloned().collect();
     for token in originals {
-        let chars: Vec<char> = token.chars().collect();
-        for start in 0..chars.len() {
-            for end in (start + 1)..=chars.len() {
-                tokens.insert(chars[start..end].iter().collect());
+        let char_count = token.chars().count();
+        if char_count > MAX_SUBTOKEN_EXPANSION_CHARS {
+            continue;
+        }
+
+        let mut boundaries: Vec<usize> = token.char_indices().map(|(idx, _)| idx).collect();
+        boundaries.push(token.len());
+        for start in 0..char_count {
+            for end in (start + 1)..=char_count {
+                tokens.insert(token[boundaries[start]..boundaries[end]].to_owned());
             }
         }
     }
@@ -550,33 +781,37 @@ fn collect_solver_tokens(
     tokens.into_iter().collect()
 }
 
-fn max_pair_token_len(entries: &HashMap<(String, String), (f64, EffectiveSubChain)>) -> usize {
+/// Longest token length in effective substitution entries.
+fn max_pair_token_len(
+    entries: &HashMap<String, HashMap<String, (f64, EffectiveSubChain)>>,
+) -> usize {
     entries
-        .keys()
-        .flat_map(|(source, target)| [source.chars().count(), target.chars().count()])
+        .iter()
+        .flat_map(|(source, targets)| {
+            targets
+                .keys()
+                .flat_map(move |target| [source.chars().count(), target.chars().count()])
+        })
         .max()
-        .unwrap_or(1)
+        .unwrap_or(0)
         .max(1)
 }
 
+/// Longest token length in effective insertion/deletion entries.
 fn max_single_token_len(entries: &HashMap<String, (f64, EffectiveOpChain)>) -> usize {
     entries
         .keys()
         .map(|token| token.chars().count())
         .max()
-        .unwrap_or(1)
+        .unwrap_or(0)
         .max(1)
 }
 
 /// Computes all effective costs with one unified state-transition graph.
-pub(crate) fn compute_effective_costs_unified(
+pub(crate) fn compute_effective_costs(
     sub_map: &CostMap<SubstitutionKey>,
     ins_map: &CostMap<SingleTokenKey>,
     del_map: &CostMap<SingleTokenKey>,
-) -> (
-    EffectiveSubstitutionCosts,
-    EffectiveSingleTokenCosts,
-    EffectiveSingleTokenCosts,
-) {
+) -> EffectiveCosts {
     CostSolver::new(sub_map, ins_map, del_map).compute_effective_costs()
 }

@@ -1,19 +1,15 @@
 use crate::explanation::{EditOperation, Predecessor};
-use crate::transitive_costs::{
-    EffectiveOpChain, EffectiveSingleTokenCosts, EffectiveSubChain, EffectiveSubstitutionCosts,
-};
+use crate::transitive_costs::{EffectiveCosts, EffectiveOpChain, EffectiveSubChain};
 
 pub(crate) fn custom_levenshtein_distance_precomputed(
     source: &str,
     target: &str,
-    eff_sub: &EffectiveSubstitutionCosts,
-    eff_ins: &EffectiveSingleTokenCosts,
-    eff_del: &EffectiveSingleTokenCosts,
+    costs: &EffectiveCosts,
 ) -> f64 {
     if source == target {
         return 0.0;
     }
-    let mut processor = LevenshteinProcessor::new(source, target, eff_sub, eff_ins, eff_del, false);
+    let mut processor = LevenshteinProcessor::new(source, target, costs, false);
     processor.run();
     processor.distance()
 }
@@ -21,9 +17,7 @@ pub(crate) fn custom_levenshtein_distance_precomputed(
 pub(crate) fn explain_custom_levenshtein_precomputed(
     source: &str,
     target: &str,
-    eff_sub: &EffectiveSubstitutionCosts,
-    eff_ins: &EffectiveSingleTokenCosts,
-    eff_del: &EffectiveSingleTokenCosts,
+    costs: &EffectiveCosts,
 ) -> Vec<EditOperation> {
     if source == target {
         return source
@@ -33,7 +27,7 @@ pub(crate) fn explain_custom_levenshtein_precomputed(
             })
             .collect();
     }
-    let mut processor = LevenshteinProcessor::new(source, target, eff_sub, eff_ins, eff_del, true);
+    let mut processor = LevenshteinProcessor::new(source, target, costs, true);
     processor.run();
     processor.into_result()
 }
@@ -43,23 +37,14 @@ pub(crate) fn explain_custom_levenshtein_precomputed(
 struct LevenshteinProcessor<'a> {
     source_chars: Vec<char>,
     target_chars: Vec<char>,
-    eff_sub: &'a EffectiveSubstitutionCosts,
-    eff_del: &'a EffectiveSingleTokenCosts,
-    eff_ins: &'a EffectiveSingleTokenCosts,
+    costs: &'a EffectiveCosts,
     dp: Vec<Vec<f64>>,
     predecessors: Option<Vec<Vec<Predecessor>>>,
     multi_char_ops: bool,
 }
 
 impl<'a> LevenshteinProcessor<'a> {
-    fn new(
-        source: &str,
-        target: &str,
-        eff_sub: &'a EffectiveSubstitutionCosts,
-        eff_ins: &'a EffectiveSingleTokenCosts,
-        eff_del: &'a EffectiveSingleTokenCosts,
-        explain: bool,
-    ) -> Self {
+    fn new(source: &str, target: &str, costs: &'a EffectiveCosts, explain: bool) -> Self {
         let source_chars: Vec<char> = source.chars().collect();
         let target_chars: Vec<char> = target.chars().collect();
         let len_source = source_chars.len();
@@ -68,12 +53,10 @@ impl<'a> LevenshteinProcessor<'a> {
         let mut processor = Self {
             source_chars,
             target_chars,
-            eff_sub,
-            multi_char_ops: eff_sub.max_token_length > 1
-                || eff_ins.max_token_length > 1
-                || eff_del.max_token_length > 1,
-            eff_del,
-            eff_ins,
+            multi_char_ops: costs.sub.max_token_length > 1
+                || costs.ins.max_token_length > 1
+                || costs.del.max_token_length > 1,
+            costs,
             dp: vec![vec![0.0; len_target + 1]; len_source + 1],
             predecessors: if explain {
                 Some(vec![
@@ -127,9 +110,9 @@ impl<'a> LevenshteinProcessor<'a> {
         let source_char_str = self.source_chars[i - 1].to_string();
         let target_char_str = self.target_chars[j - 1].to_string();
 
-        let deletion_cost = self.dp[i - 1][j] + self.eff_del.get_cost(&source_char_str);
-        let insertion_cost = self.dp[i][j - 1] + self.eff_ins.get_cost(&target_char_str);
-        let sub_cost = self.eff_sub.get_cost(&source_char_str, &target_char_str);
+        let deletion_cost = self.dp[i - 1][j] + self.costs.del.get_cost(&source_char_str);
+        let insertion_cost = self.dp[i][j - 1] + self.costs.ins.get_cost(&target_char_str);
+        let sub_cost = self.costs.sub.get_cost(&source_char_str, &target_char_str);
         let substitution_cost = self.dp[i - 1][j - 1] + sub_cost;
 
         // Check for exact match
@@ -166,15 +149,15 @@ impl<'a> LevenshteinProcessor<'a> {
         // First row (insertions)
         for j in 1..=len_target {
             let char_str = self.target_chars[j - 1].to_string();
-            self.dp[0][j] = self.dp[0][j - 1] + self.eff_ins.get_cost(&char_str);
+            self.dp[0][j] = self.dp[0][j - 1] + self.costs.ins.get_cost(&char_str);
             self.record(0, j, Predecessor::Insert(1));
 
-            let max_len = self.eff_ins.max_token_length.min(j);
+            let max_len = self.costs.ins.max_token_length.min(j);
             for token_len in 2..=max_len {
                 let token_start = j - token_len;
                 let token: String = self.target_chars[token_start..j].iter().collect();
-                if self.eff_ins.has_key(&token) {
-                    let new_cost = self.dp[0][token_start] + self.eff_ins.get_cost(&token);
+                if self.costs.ins.has_key(&token) {
+                    let new_cost = self.dp[0][token_start] + self.costs.ins.get_cost(&token);
                     if new_cost < self.dp[0][j] {
                         self.dp[0][j] = new_cost;
                         self.record(0, j, Predecessor::Insert(token_len));
@@ -185,15 +168,15 @@ impl<'a> LevenshteinProcessor<'a> {
         // First column (deletions)
         for i in 1..=len_source {
             let char_str = self.source_chars[i - 1].to_string();
-            self.dp[i][0] = self.dp[i - 1][0] + self.eff_del.get_cost(&char_str);
+            self.dp[i][0] = self.dp[i - 1][0] + self.costs.del.get_cost(&char_str);
             self.record(i, 0, Predecessor::Delete(1));
 
-            let max_len = self.eff_del.max_token_length.min(i);
+            let max_len = self.costs.del.max_token_length.min(i);
             for token_len in 2..=max_len {
                 let token_start = i - token_len;
                 let token: String = self.source_chars[token_start..i].iter().collect();
-                if self.eff_del.has_key(&token) {
-                    let new_cost = self.dp[token_start][0] + self.eff_del.get_cost(&token);
+                if self.costs.del.has_key(&token) {
+                    let new_cost = self.dp[token_start][0] + self.costs.del.get_cost(&token);
                     if new_cost < self.dp[i][0] {
                         self.dp[i][0] = new_cost;
                         self.record(i, 0, Predecessor::Delete(token_len));
@@ -204,8 +187,8 @@ impl<'a> LevenshteinProcessor<'a> {
     }
 
     fn check_multi_char_substitutions(&mut self, i: usize, j: usize) {
-        let max_source_len = self.eff_sub.max_token_length.min(i);
-        let max_target_len = self.eff_sub.max_token_length.min(j);
+        let max_source_len = self.costs.sub.max_token_length.min(i);
+        let max_target_len = self.costs.sub.max_token_length.min(j);
         for source_len in 1..=max_source_len {
             for target_len in 1..=max_target_len {
                 if source_len == 1 && target_len == 1 {
@@ -215,9 +198,9 @@ impl<'a> LevenshteinProcessor<'a> {
                 let target_start = j - target_len;
                 let source_substr: String = self.source_chars[source_start..i].iter().collect();
                 let target_substr: String = self.target_chars[target_start..j].iter().collect();
-                if self.eff_sub.has_key(&source_substr, &target_substr) {
+                if self.costs.sub.has_key(&source_substr, &target_substr) {
                     let new_cost = self.dp[source_start][target_start]
-                        + self.eff_sub.get_cost(&source_substr, &target_substr);
+                        + self.costs.sub.get_cost(&source_substr, &target_substr);
                     if new_cost < self.dp[i][j] {
                         self.dp[i][j] = new_cost;
                         self.record(i, j, Predecessor::Substitute(source_len, target_len));
@@ -228,12 +211,12 @@ impl<'a> LevenshteinProcessor<'a> {
     }
 
     fn check_multi_char_insertions(&mut self, i: usize, j: usize) {
-        let max_ins_len = self.eff_ins.max_token_length.min(j);
+        let max_ins_len = self.costs.ins.max_token_length.min(j);
         for token_len in 2..=max_ins_len {
             let token_start = j - token_len;
             let token: String = self.target_chars[token_start..j].iter().collect();
-            if self.eff_ins.has_key(&token) {
-                let new_cost = self.dp[i][token_start] + self.eff_ins.get_cost(&token);
+            if self.costs.ins.has_key(&token) {
+                let new_cost = self.dp[i][token_start] + self.costs.ins.get_cost(&token);
                 if new_cost < self.dp[i][j] {
                     self.dp[i][j] = new_cost;
                     self.record(i, j, Predecessor::Insert(token_len));
@@ -243,12 +226,12 @@ impl<'a> LevenshteinProcessor<'a> {
     }
 
     fn check_multi_char_deletions(&mut self, i: usize, j: usize) {
-        let max_del_len = self.eff_del.max_token_length.min(i);
+        let max_del_len = self.costs.del.max_token_length.min(i);
         for token_len in 2..=max_del_len {
             let token_start = i - token_len;
             let token: String = self.source_chars[token_start..i].iter().collect();
-            if self.eff_del.has_key(&token) {
-                let new_cost = self.dp[token_start][j] + self.eff_del.get_cost(&token);
+            if self.costs.del.has_key(&token) {
+                let new_cost = self.dp[token_start][j] + self.costs.del.get_cost(&token);
                 if new_cost < self.dp[i][j] {
                     self.dp[i][j] = new_cost;
                     self.record(i, j, Predecessor::Delete(token_len));
@@ -278,9 +261,9 @@ impl<'a> LevenshteinProcessor<'a> {
                     if source_token != target_token {
                         // path is reversed at end; push in reverse so after reversal
                         // the chain appears in forward order.
-                        match self.eff_sub.get_chain(&source_token, &target_token) {
+                        match self.costs.sub.get_chain(&source_token, &target_token) {
                             EffectiveSubChain::Direct => {
-                                let cost = self.eff_sub.get_cost(&source_token, &target_token);
+                                let cost = self.costs.sub.get_cost(&source_token, &target_token);
                                 path.push(EditOperation::Substitute {
                                     source: source_token,
                                     target: target_token,
@@ -296,6 +279,11 @@ impl<'a> LevenshteinProcessor<'a> {
                                     });
                                 }
                             }
+                            EffectiveSubChain::EditPath { operations } => {
+                                for op in operations.iter().rev() {
+                                    path.push(op.clone());
+                                }
+                            }
                         }
                     }
                     i -= s_len;
@@ -303,9 +291,9 @@ impl<'a> LevenshteinProcessor<'a> {
                 }
                 Predecessor::Insert(t_len) => {
                     let target_token: String = self.target_chars[j - t_len..j].iter().collect();
-                    match self.eff_ins.get_chain(&target_token) {
+                    match self.costs.ins.get_chain(&target_token) {
                         EffectiveOpChain::Direct => {
-                            let cost = self.eff_ins.get_cost(&target_token);
+                            let cost = self.costs.ins.get_cost(&target_token);
                             path.push(EditOperation::Insert {
                                 target: target_token,
                                 cost,
@@ -333,14 +321,19 @@ impl<'a> LevenshteinProcessor<'a> {
                                 cost: terminal_cost,
                             });
                         }
+                        EffectiveOpChain::EditPath { operations } => {
+                            for op in operations.iter().rev() {
+                                path.push(op.clone());
+                            }
+                        }
                     }
                     j -= t_len;
                 }
                 Predecessor::Delete(s_len) => {
                     let source_token: String = self.source_chars[i - s_len..i].iter().collect();
-                    match self.eff_del.get_chain(&source_token) {
+                    match self.costs.del.get_chain(&source_token) {
                         EffectiveOpChain::Direct => {
-                            let cost = self.eff_del.get_cost(&source_token);
+                            let cost = self.costs.del.get_cost(&source_token);
                             path.push(EditOperation::Delete {
                                 source: source_token,
                                 cost,
@@ -368,6 +361,11 @@ impl<'a> LevenshteinProcessor<'a> {
                                 });
                             }
                         }
+                        EffectiveOpChain::EditPath { operations } => {
+                            for op in operations.iter().rev() {
+                                path.push(op.clone());
+                            }
+                        }
                     }
                     i -= s_len;
                 }
@@ -391,7 +389,7 @@ impl<'a> LevenshteinProcessor<'a> {
 mod test {
     use super::*;
     use crate::cost_map::CostMap;
-    use crate::transitive_costs::compute_effective_costs_unified;
+    use crate::transitive_costs::compute_effective_costs;
     use crate::types::{SingleTokenCostMap, SingleTokenKey, SubstitutionCostMap, SubstitutionKey};
 
     fn assert_approx_eq(a: f64, b: f64, epsilon: f64) {
@@ -422,9 +420,8 @@ mod test {
         ins_map: &CostMap<SingleTokenKey>,
         del_map: &CostMap<SingleTokenKey>,
     ) -> f64 {
-        let (eff_sub, eff_del, eff_ins) =
-            compute_effective_costs_unified(sub_map, ins_map, del_map);
-        custom_levenshtein_distance_precomputed(source, target, &eff_sub, &eff_ins, &eff_del)
+        let costs = compute_effective_costs(sub_map, ins_map, del_map);
+        custom_levenshtein_distance_precomputed(source, target, &costs)
     }
 
     fn calc_explain(
@@ -434,9 +431,8 @@ mod test {
         ins_map: &CostMap<SingleTokenKey>,
         del_map: &CostMap<SingleTokenKey>,
     ) -> Vec<EditOperation> {
-        let (eff_sub, eff_del, eff_ins) =
-            compute_effective_costs_unified(sub_map, ins_map, del_map);
-        explain_custom_levenshtein_precomputed(source, target, &eff_sub, &eff_ins, &eff_del)
+        let costs = compute_effective_costs(sub_map, ins_map, del_map);
+        explain_custom_levenshtein_precomputed(source, target, &costs)
     }
 
     #[test]
@@ -965,11 +961,9 @@ mod test {
     #[test]
     fn test_check_multi_char_ops_with_empty_maps() {
         let (sub_map, ins_map, del_map) = create_default_cost_maps();
-        let (eff_sub, eff_del, eff_ins) =
-            compute_effective_costs_unified(&sub_map, &ins_map, &del_map);
+        let costs = compute_effective_costs(&sub_map, &ins_map, &del_map);
 
-        let mut processor =
-            LevenshteinProcessor::new("abcd", "xyz", &eff_sub, &eff_ins, &eff_del, true);
+        let mut processor = LevenshteinProcessor::new("abcd", "xyz", &costs, true);
 
         // Simulate the DP state before the operation
         let original_dp_3_2 = processor.dp[3][2];

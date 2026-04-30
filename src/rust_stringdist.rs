@@ -1,8 +1,6 @@
 use crate::cost_map::CostMap;
 use crate::explanation::EditOperation;
-use crate::transitive_costs::{
-    compute_effective_costs_unified, EffectiveSingleTokenCosts, EffectiveSubstitutionCosts,
-};
+use crate::transitive_costs::{compute_effective_costs, EffectiveCosts};
 use crate::types::{SingleTokenKey, SubstitutionKey};
 use crate::weighted_levenshtein::custom_levenshtein_distance_precomputed;
 use crate::weighted_levenshtein::explain_custom_levenshtein_precomputed;
@@ -32,17 +30,12 @@ impl<'py> IntoPyObject<'py> for EditOperation {
     }
 }
 
-/// Precomputes effective substitution, insertion, and deletion costs once and reuses them
-/// for every `.distance()` / `.batch_distance()` call.
-///
-/// Building the calculator runs Dijkstra on the substitution graph and then token-graph
-/// closure passes (see `transitive_costs`), so per-call distance stays linear in string length.
+/// Precomputes effective substitution, insertion, and deletion costs once and
+/// reuses them for every `.distance()` / `.batch_distance()` call.
 #[pyclass]
 #[derive(Debug)]
 struct RustLevenshteinCalculator {
-    eff_sub: EffectiveSubstitutionCosts,
-    eff_del: EffectiveSingleTokenCosts,
-    eff_ins: EffectiveSingleTokenCosts,
+    costs: EffectiveCosts,
 }
 
 #[pymethods]
@@ -80,18 +73,13 @@ impl RustLevenshteinCalculator {
         let del_map =
             CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost);
 
-        let (eff_sub, eff_del, eff_ins) =
-            compute_effective_costs_unified(&sub_map, &ins_map, &del_map);
+        let costs = compute_effective_costs(&sub_map, &ins_map, &del_map);
 
-        Ok(Self {
-            eff_sub,
-            eff_del,
-            eff_ins,
-        })
+        Ok(Self { costs })
     }
 
     fn distance(&self, a: &str, b: &str) -> f64 {
-        custom_levenshtein_distance_precomputed(a, b, &self.eff_sub, &self.eff_ins, &self.eff_del)
+        custom_levenshtein_distance_precomputed(a, b, &self.costs)
     }
 
     fn batch_distance(&self, py: Python<'_>, s: String, candidates: Vec<String>) -> Vec<f64> {
@@ -101,21 +89,13 @@ impl RustLevenshteinCalculator {
         py.allow_threads(|| {
             candidates
                 .par_iter()
-                .map(|c| {
-                    custom_levenshtein_distance_precomputed(
-                        &s,
-                        c,
-                        &self.eff_sub,
-                        &self.eff_ins,
-                        &self.eff_del,
-                    )
-                })
+                .map(|c| custom_levenshtein_distance_precomputed(&s, c, &self.costs))
                 .collect()
         })
     }
 
     fn explain(&self, py: Python<'_>, a: &str, b: &str) -> PyResult<Vec<PyObject>> {
-        explain_custom_levenshtein_precomputed(a, b, &self.eff_sub, &self.eff_ins, &self.eff_del)
+        explain_custom_levenshtein_precomputed(a, b, &self.costs)
             .into_iter()
             .map(|op| op.into_pyobject(py).map(|bound| bound.into()))
             .collect::<PyResult<Vec<PyObject>>>()
