@@ -179,3 +179,17 @@ def test_explain_effective_deletion_with_insertion_then_deletion() -> None:
         EditOperation("delete", "AB", None, 0.0),
         EditOperation("match", "C", "C", 0.0),
     ]
+
+
+def test_insert_delete_substitute_chain() -> None:
+    wl = WeightedLevenshtein(
+        substitution_costs={("ABC", "Z"): 0.1},
+        insertion_costs={"B": 0.1},
+        deletion_costs={"D": 0.1},
+    )
+    ops = wl.explain("ADC", "Z")
+    assert ops == [
+        EditOperation("delete", "D", None, 0.1),
+        EditOperation("insert", None, "B", 0.1),
+        EditOperation("substitute", "ABC", "Z", 0.1),
+    ]
