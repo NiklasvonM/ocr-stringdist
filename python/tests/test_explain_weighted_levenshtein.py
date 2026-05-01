@@ -134,9 +134,7 @@ def test_explain_transitive_insertion_chain_after_closure() -> None:
         symmetric_substitution=False,
     ).transitive_closure()
     ops = _flat_explain_assertions(wl, "a", "ay", 0.3)
-    assert ops == [
-        EditOperation("insert", None, "y", 0.3),
-    ]
+    _assert_ops_equal(ops, [EditOperation("insert", None, "y", 0.3)])
 
 
 def test_explain_chain_with_expensive_direct_substitution_after_closure() -> None:
@@ -192,7 +190,7 @@ def test_explain_insert_delete_substitute_chain_after_closure() -> None:
         deletion_costs={"D": 0.1},
     ).transitive_closure()
     ops = _flat_explain_assertions(wl, "ADC", "Z", 0.3)
-    assert ops == [EditOperation("substitute", "ADC", "Z", 0.3)]
+    _assert_ops_equal(ops, [EditOperation("substitute", "ADC", "Z", 0.3)])
 
 
 def test_explain_single_char_composed_substitution_chain_after_closure() -> None:
@@ -202,4 +200,4 @@ def test_explain_single_char_composed_substitution_chain_after_closure() -> None
         insertion_costs={"AB": 0.2},
     ).transitive_closure()
     ops = _flat_explain_assertions(wl, "X", "Z", 0.3)
-    assert ops == [EditOperation("substitute", "X", "Z", 0.3)]
+    _assert_ops_equal(ops, [EditOperation("substitute", "X", "Z", 0.3)])

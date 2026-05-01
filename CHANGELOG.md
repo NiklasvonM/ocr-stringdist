@@ -7,12 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - Unreleased
 
-### Changed
-
-- Consider transitive costs, making the weighted Levenshtein distance satisfy the triangle inequality.
 
 ### Added
 
+- Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
 - Support for Python 3.14.
 
 ## [1.0.1] - 2025-09-21

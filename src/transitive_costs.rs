@@ -7,9 +7,13 @@
 //!   - `dist[a][b]` for substitutions,
 //!   - `dist[a][ε]` for deletions,
 //!   - `dist[ε][b]` for insertions.
+//!
+//! Optional pruning removes generated substitutions that are already represented
+//! by matches, insertions, deletions, and shorter substitutions.
 
 use crate::cost_map::CostMap;
 use crate::types::{SingleTokenCostMap, SingleTokenKey, SubstitutionCostMap, SubstitutionKey};
+use crate::weighted_levenshtein::custom_levenshtein_distance;
 use std::collections::{HashMap, HashSet};
 
 // Configured tokens up to this length are expanded into all of their substrings,
@@ -21,6 +25,7 @@ const MAX_NODE_LENGTH_CHARS: usize = 8;
 // graph. Once these are hit, growth stops; closure runs on whatever nodes exist.
 const MAX_NODES: usize = 2048;
 const MAX_GROWTH_ROUNDS: usize = 3;
+const REDUNDANT_SUBSTITUTION_EPSILON: f64 = 1e-9;
 
 /// Interned identifier for a token graph node.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -73,10 +78,13 @@ impl<T> Matrix<T> {
 }
 
 /// Computes closed sub/ins/del cost maps via Floyd-Warshall on a unified graph.
+/// If `prune` is true, generated substitutions that the returned edit maps can
+/// already express are removed from the substitution map.
 pub fn compute_closed_cost_maps(
     sub: &CostMap<SubstitutionKey>,
     ins: &CostMap<SingleTokenKey>,
     del: &CostMap<SingleTokenKey>,
+    prune: bool,
 ) -> (SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap) {
     let tokens = collect_nodes(sub, ins, del);
     let token_to_id: HashMap<&str, NodeId> = tokens
@@ -87,9 +95,14 @@ pub fn compute_closed_cost_maps(
     let epsilon_id = token_to_id[""];
     let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del);
 
-    let closed_sub = project_substitutions(&tokens, &token_to_id, &dist, sub);
     let closed_ins = project_single_token(&tokens, &token_to_id, &dist, ins, epsilon_id, true);
     let closed_del = project_single_token(&tokens, &token_to_id, &dist, del, epsilon_id, false);
+    let closed_sub = project_substitutions(&tokens, &token_to_id, &dist, sub);
+    let closed_sub = if prune {
+        prune_redundant_substitutions(closed_sub, &closed_ins, &closed_del, sub, ins, del)
+    } else {
+        closed_sub
+    };
 
     (closed_sub, closed_ins, closed_del)
 }
@@ -228,9 +241,10 @@ fn run_closure(
     }
 
     for ((source, target), &cost) in &sub.costs {
-        if let (Some(&s), Some(&t)) =
-            (token_to_id.get(source.as_str()), token_to_id.get(target.as_str()))
-        {
+        if let (Some(&s), Some(&t)) = (
+            token_to_id.get(source.as_str()),
+            token_to_id.get(target.as_str()),
+        ) {
             relax(&mut dist, s, t, cost);
         }
     }
@@ -354,6 +368,48 @@ fn project_substitutions(
     closed
 }
 
+fn prune_redundant_substitutions(
+    closed_sub: SubstitutionCostMap,
+    closed_ins: &SingleTokenCostMap,
+    closed_del: &SingleTokenCostMap,
+    raw_sub: &CostMap<SubstitutionKey>,
+    raw_ins: &CostMap<SingleTokenKey>,
+    raw_del: &CostMap<SingleTokenKey>,
+) -> SubstitutionCostMap {
+    let mut keys: Vec<SubstitutionKey> = closed_sub.keys().cloned().collect();
+    keys.sort_by(|(source_a, target_a), (source_b, target_b)| {
+        (
+            source_a.chars().count() + target_a.chars().count(),
+            source_a,
+            target_a,
+        )
+            .cmp(&(
+                source_b.chars().count() + target_b.chars().count(),
+                source_b,
+                target_b,
+            ))
+    });
+
+    let mut sub_map = CostMap::<SubstitutionKey>::new(closed_sub, raw_sub.default_cost(), false);
+    let ins_map = CostMap::<SingleTokenKey>::new(closed_ins.clone(), raw_ins.default_cost());
+    let del_map = CostMap::<SingleTokenKey>::new(closed_del.clone(), raw_del.default_cost());
+
+    for key in keys {
+        if raw_sub.costs.contains_key(&key) {
+            continue;
+        }
+        let Some(cost) = sub_map.costs.remove(&key) else {
+            continue;
+        };
+        let alternative = custom_levenshtein_distance(&key.0, &key.1, &sub_map, &ins_map, &del_map);
+        if alternative > cost + REDUNDANT_SUBSTITUTION_EPSILON {
+            sub_map.costs.insert(key, cost);
+        }
+    }
+
+    sub_map.costs
+}
+
 fn project_single_token(
     tokens: &[String],
     token_to_id: &HashMap<&str, NodeId>,
@@ -395,7 +451,11 @@ mod tests {
         (a - b).abs() < 1e-9
     }
 
-    fn make_sub(pairs: &[((&str, &str), f64)], default: f64, symmetric: bool) -> CostMap<SubstitutionKey> {
+    fn make_sub(
+        pairs: &[((&str, &str), f64)],
+        default: f64,
+        symmetric: bool,
+    ) -> CostMap<SubstitutionKey> {
         let mut map = SubstitutionCostMap::new();
         for ((s, t), c) in pairs {
             map.insert(((*s).to_string(), (*t).to_string()), *c);
@@ -416,7 +476,7 @@ mod tests {
         let sub = make_sub(&[(("a", "b"), 0.1), (("b", "c"), 0.1)], 1.0, false);
         let ins = make_single(&[], 1.0);
         let del = make_single(&[], 1.0);
-        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false);
         assert!(approx(closed_sub[&("a".to_string(), "c".to_string())], 0.2));
     }
 
@@ -425,7 +485,7 @@ mod tests {
         let sub = make_sub(&[(("6", "G"), 0.5)], 1.0, false);
         let ins = make_single(&[], 1.0);
         let del = make_single(&[("G", 0.01)], 1.0);
-        let (_, _, closed_del) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (_, _, closed_del) = compute_closed_cost_maps(&sub, &ins, &del, false);
         assert!(approx(closed_del["6"], 0.51));
     }
 
@@ -434,7 +494,7 @@ mod tests {
         let sub = make_sub(&[(("x", "y"), 0.2)], 1.0, false);
         let ins = make_single(&[("x", 0.1)], 1.0);
         let del = make_single(&[], 1.0);
-        let (_, closed_ins, _) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (_, closed_ins, _) = compute_closed_cost_maps(&sub, &ins, &del, false);
         assert!(approx(closed_ins["y"], 0.3));
     }
 
@@ -444,8 +504,36 @@ mod tests {
         let sub = make_sub(&[(("AAA", "B"), 0.1)], 1.0, true);
         let ins = make_single(&[("A", 0.2)], 1.0);
         let del = make_single(&[], 1.0);
-        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false);
         assert!(approx(closed_sub[&("A".to_string(), "B".to_string())], 0.5));
+    }
+
+    #[test]
+    fn closure_prunes_substitutions_represented_by_insertions() {
+        let sub = make_sub(&[(("AAA", "B"), 0.1), (("A", "B"), 0.6)], 1.0, true);
+        let ins = make_single(&[("A", 0.2)], 1.0);
+        let del = make_single(&[], 1.0);
+
+        let (closed_sub, closed_ins, _) = compute_closed_cost_maps(&sub, &ins, &del, true);
+
+        assert!(approx(closed_ins["A"], 0.2));
+        assert!(approx(closed_sub[&("A".to_string(), "B".to_string())], 0.5));
+        assert!(!closed_sub.contains_key(&("AA".to_string(), "AAA".to_string())));
+        assert!(!closed_sub.contains_key(&("B".to_string(), "AA".to_string())));
+    }
+
+    #[test]
+    fn closure_preserves_raw_substitutions_even_when_redundant() {
+        let sub = make_sub(&[(("AA", "AAA"), 0.2)], 1.0, false);
+        let ins = make_single(&[("A", 0.2)], 1.0);
+        let del = make_single(&[], 1.0);
+
+        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, true);
+
+        assert!(approx(
+            closed_sub[&("AA".to_string(), "AAA".to_string())],
+            0.2
+        ));
     }
 
     #[test]
@@ -454,8 +542,11 @@ mod tests {
         let sub = make_sub(&[(("ABC", "Z"), 0.1)], 1.0, true);
         let ins = make_single(&[("B", 0.1)], 1.0);
         let del = make_single(&[("D", 0.1)], 1.0);
-        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del);
-        assert!(approx(closed_sub[&("ADC".to_string(), "Z".to_string())], 0.3));
+        let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false);
+        assert!(approx(
+            closed_sub[&("ADC".to_string(), "Z".to_string())],
+            0.3
+        ));
     }
 
     #[test]
@@ -463,7 +554,7 @@ mod tests {
         let sub = make_sub(&[(("6", "G"), 0.5)], 1.0, false);
         let ins = make_single(&[], 1.0);
         let del = make_single(&[("6", 0.2), ("G", 0.01)], 1.0);
-        let (_, _, closed_del) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (_, _, closed_del) = compute_closed_cost_maps(&sub, &ins, &del, false);
         assert!(approx(closed_del["6"], 0.2));
     }
 
@@ -474,11 +565,11 @@ mod tests {
         let sub = make_sub(&[(("a", "b"), 0.1), (("b", "c"), 0.1)], 1.0, false);
         let ins = make_single(&[], 1.0);
         let del = make_single(&[], 1.0);
-        let (s1, i1, d1) = compute_closed_cost_maps(&sub, &ins, &del);
+        let (s1, i1, d1) = compute_closed_cost_maps(&sub, &ins, &del, false);
         let sub2 = CostMap::<SubstitutionKey>::new(s1.clone(), 1.0, false);
         let ins2 = CostMap::<SingleTokenKey>::new(i1.clone(), 1.0);
         let del2 = CostMap::<SingleTokenKey>::new(d1.clone(), 1.0);
-        let (s2, i2, d2) = compute_closed_cost_maps(&sub2, &ins2, &del2);
+        let (s2, i2, d2) = compute_closed_cost_maps(&sub2, &ins2, &del2, false);
         assert_eq!(s1, s2);
         assert_eq!(i1, i2);
         assert_eq!(d1, d2);

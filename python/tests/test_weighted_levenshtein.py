@@ -582,6 +582,30 @@ def test_transitive_insertion_subtitution() -> None:
     assert wl.distance("A", "B") == pytest.approx(0.5)
 
 
+def test_transitive_closure_prunes_redundant_substitutions() -> None:
+    wl = WeightedLevenshtein(
+        substitution_costs={("AAA", "B"): 0.1, ("A", "B"): 0.6},
+        insertion_costs={"A": 0.2},
+    ).transitive_closure(prune=True)
+
+    assert wl.distance("A", "B") == pytest.approx(0.5)
+    assert wl.distance("AA", "AAA") == pytest.approx(0.2)
+    assert ("A", "B") in wl.substitution_costs
+    assert ("AA", "AAA") not in wl.substitution_costs
+    assert ("B", "AA") not in wl.substitution_costs
+
+
+def test_transitive_closure_does_not_prune_by_default() -> None:
+    wl = WeightedLevenshtein(
+        substitution_costs={("AAA", "B"): 0.1, ("A", "B"): 0.6},
+        insertion_costs={"A": 0.2},
+    ).transitive_closure()
+
+    assert wl.distance("A", "B") == pytest.approx(0.5)
+    assert wl.distance("AA", "AAA") == pytest.approx(0.2)
+    assert ("AA", "AAA") in wl.substitution_costs
+
+
 def test_transitive_insertion_subtitution2() -> None:
     """
     A->AA->AAB->C

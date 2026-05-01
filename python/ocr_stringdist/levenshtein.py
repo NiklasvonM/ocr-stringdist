@@ -100,7 +100,7 @@ class WeightedLevenshtein:
         """Creates an instance with all operations having equal cost of 1.0."""
         return cls(substitution_costs={}, insertion_costs={}, deletion_costs={})
 
-    def transitive_closure(self) -> WeightedLevenshtein:
+    def transitive_closure(self, *, prune: bool = False) -> WeightedLevenshtein:
         """
         Returns a new instance whose cost dictionaries are filled with effective
         (transitive) edit costs.
@@ -112,14 +112,13 @@ class WeightedLevenshtein:
         ``del("y") + ins("x")`` becoming an effective ``("y", "x")`` substitution),
         are likewise materialized.
 
-        The returned instance has ``symmetric_substitution=False`` because
-        closure may produce asymmetric pairs even when the input is symmetric.
-        Symmetric input is mirrored before closure, so both directions of every
-        original pair are still present in the result.
+        :param prune: If True, remove generated substitutions whose costs are
+                      already represented by matches, insertions, deletions, and
+                      shorter substitutions. This can make the returned cost map
+                      easier to inspect, but it is much more expensive for large
+                      closures.
 
-        Closure is bounded: very large or pathological cost maps may not be
-        fully closed. The DP falls back to the configured default costs for any
-        ``(s, t)`` not in the resulting map.
+        Closure is bounded: very large cost maps may not be fully closed.
 
         ``explain()`` on the closed instance returns flat single-step ops; the
         original chain that produced an effective cost is not preserved.
@@ -127,7 +126,7 @@ class WeightedLevenshtein:
         For repeated use, save via :meth:`to_dict` and reload via
         :meth:`from_dict` so the closure is computed once.
         """
-        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps()
+        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(prune)
         return WeightedLevenshtein(
             substitution_costs=dict(sub_dict),
             insertion_costs=dict(ins_dict),

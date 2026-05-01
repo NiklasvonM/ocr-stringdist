@@ -68,10 +68,8 @@ impl RustLevenshteinCalculator {
             default_substitution_cost,
             symmetric_substitution,
         );
-        let ins =
-            CostMap::<SingleTokenKey>::from_py_dict(insertion_costs, default_insertion_cost);
-        let del =
-            CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost);
+        let ins = CostMap::<SingleTokenKey>::from_py_dict(insertion_costs, default_insertion_cost);
+        let del = CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost);
 
         Ok(Self { sub, ins, del })
     }
@@ -101,15 +99,18 @@ impl RustLevenshteinCalculator {
 
     /// Computes effective edit costs via transitive closure and returns three
     /// Python dicts: `(substitution_costs, insertion_costs, deletion_costs)`.
+    /// Generated substitutions are pruned only when `prune` is true.
     ///
     /// The Python wrapper assembles these into a new `WeightedLevenshtein`
     /// whose `.distance()` and `.explain()` use the closed costs directly.
+    #[pyo3(signature = (prune = false))]
     fn closed_cost_maps<'py>(
         &self,
         py: Python<'py>,
+        prune: bool,
     ) -> PyResult<(Bound<'py, PyDict>, Bound<'py, PyDict>, Bound<'py, PyDict>)> {
         let (closed_sub, closed_ins, closed_del) =
-            compute_closed_cost_maps(&self.sub, &self.ins, &self.del);
+            compute_closed_cost_maps(&self.sub, &self.ins, &self.del, prune);
 
         let sub_dict = PyDict::new(py);
         for ((source, target), cost) in closed_sub {
@@ -212,13 +213,8 @@ mod tests {
         // Without calling closed_cost_maps, transitive paths are not auto-applied.
         // sub(a->b)=0.1, sub(b->c)=0.1: direct a->c lookup falls back to default 1.0.
         Python::with_gil(|py| {
-            let calc = make_calculator(
-                py,
-                &[(("a", "b"), 0.1), (("b", "c"), 0.1)],
-                &[],
-                &[],
-                false,
-            );
+            let calc =
+                make_calculator(py, &[(("a", "b"), 0.1), (("b", "c"), 0.1)], &[], &[], false);
             assert!((calc.distance("a", "c") - 1.0).abs() < f64::EPSILON);
         });
     }
@@ -226,14 +222,9 @@ mod tests {
     #[test]
     fn test_closed_cost_maps_finds_chain() {
         Python::with_gil(|py| {
-            let calc = make_calculator(
-                py,
-                &[(("a", "b"), 0.1), (("b", "c"), 0.1)],
-                &[],
-                &[],
-                false,
-            );
-            let (sub, _ins, _del) = calc.closed_cost_maps(py).unwrap();
+            let calc =
+                make_calculator(py, &[(("a", "b"), 0.1), (("b", "c"), 0.1)], &[], &[], false);
+            let (sub, _ins, _del) = calc.closed_cost_maps(py, false).unwrap();
             let cost: f64 = sub
                 .get_item(("a".to_string(), "c".to_string()))
                 .unwrap()
