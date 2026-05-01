@@ -95,8 +95,7 @@ pub fn compute_closed_cost_maps(
     prune: bool,
     max_node_length: Option<usize>,
 ) -> (SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap) {
-    let max_node_length =
-        max_node_length.unwrap_or_else(|| derive_max_node_length(sub, ins, del));
+    let max_node_length = max_node_length.unwrap_or_else(|| derive_max_node_length(sub, ins, del));
     let tokens = collect_nodes(sub, ins, del, max_node_length);
     let token_to_id: HashMap<&str, NodeId> = tokens
         .iter()
@@ -665,10 +664,7 @@ mod tests {
 
     #[test]
     fn insert_token_variants_into_empty() {
-        assert_eq!(
-            insert_token_variants("", "AB"),
-            vec!["AB".to_string()]
-        );
+        assert_eq!(insert_token_variants("", "AB"), vec!["AB".to_string()]);
     }
 
     #[test]
@@ -691,10 +687,7 @@ mod tests {
 
     #[test]
     fn delete_token_variants_full_match_yields_empty_string() {
-        assert_eq!(
-            delete_token_variants("ABA", "ABA"),
-            vec![String::new()]
-        );
+        assert_eq!(delete_token_variants("ABA", "ABA"), vec![String::new()]);
     }
 
     #[test]
@@ -863,10 +856,7 @@ mod tests {
         let ins = make_single(&[], 1.0);
         let del = make_single(&[], 1.0);
         let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false, None);
-        assert!(approx(
-            closed_sub[&("a".to_string(), "d".to_string())],
-            0.3
-        ));
+        assert!(approx(closed_sub[&("a".to_string(), "d".to_string())], 0.3));
     }
 
     #[test]
@@ -887,10 +877,7 @@ mod tests {
         let ins = make_single(&[], 1.0);
         let del = make_single(&[], 1.0);
         let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false, None);
-        assert!(approx(
-            closed_sub[&("é".to_string(), "è".to_string())],
-            0.2
-        ));
+        assert!(approx(closed_sub[&("é".to_string(), "è".to_string())], 0.2));
     }
 
     // --- pruning ----------------------------------------------------------------
@@ -944,8 +931,7 @@ mod tests {
         ] {
             let unpruned =
                 custom_levenshtein_distance(s, t, &unpruned_subs, &unpruned_ins, &unpruned_del);
-            let pruned =
-                custom_levenshtein_distance(s, t, &pruned_subs, &pruned_ins, &pruned_del);
+            let pruned = custom_levenshtein_distance(s, t, &pruned_subs, &pruned_ins, &pruned_del);
             assert!(
                 approx(unpruned, pruned),
                 "distance({s:?},{t:?}) drifted after pruning: {unpruned} vs {pruned}"

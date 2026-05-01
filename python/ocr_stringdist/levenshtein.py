@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Optional
 
+from ._observable_dict import _ObservableDict
 from ._rust_stringdist import RustLevenshteinCalculator
 from .default_ocr_distances import ocr_distance_map
 from .edit_operation import EditOperation
@@ -29,14 +30,6 @@ class WeightedLevenshtein:
     :raises TypeError, ValueError: If the provided arguments are invalid.
     """
 
-    substitution_costs: dict[tuple[str, str], float]
-    insertion_costs: dict[str, float]
-    deletion_costs: dict[str, float]
-    symmetric_substitution: bool
-    default_substitution_cost: float
-    default_insertion_cost: float
-    default_deletion_cost: float
-
     def __init__(
         self,
         substitution_costs: Optional[dict[tuple[str, str], float]] = None,
@@ -48,52 +41,132 @@ class WeightedLevenshtein:
         default_insertion_cost: float = 1.0,
         default_deletion_cost: float = 1.0,
     ) -> None:
-        # Validate default costs
-        for cost_name, cost_val in [
-            ("default_substitution_cost", default_substitution_cost),
-            ("default_insertion_cost", default_insertion_cost),
-            ("default_deletion_cost", default_deletion_cost),
-        ]:
-            if not isinstance(cost_val, (int, float)):
-                raise TypeError(f"{cost_name} must be a number, but got: {type(cost_val).__name__}")
-            if cost_val < 0:
-                raise ValueError(f"{cost_name} must be non-negative, got value: {cost_val}")
-
-        # Validate substitution_costs dictionary
-        sub_costs = ocr_distance_map if substitution_costs is None else substitution_costs
-        for key, cost in sub_costs.items():
-            if not (
-                isinstance(key, tuple)
-                and len(key) == 2
-                and isinstance(key[0], str)
-                and isinstance(key[1], str)
-            ):
-                raise TypeError(
-                    f"substitution_costs keys must be tuples of two strings, but found: {key}"
-                )
-            if not isinstance(cost, (int, float)):
-                raise TypeError(
-                    f"Cost for substitution {key} must be a number, but got: {type(cost).__name__}"
-                )
-            if cost < 0:
-                raise ValueError(f"Cost for substitution {key} cannot be negative, but got: {cost}")
-
-        self.substitution_costs = sub_costs
-        self.insertion_costs = {} if insertion_costs is None else insertion_costs
-        self.deletion_costs = {} if deletion_costs is None else deletion_costs
-        self.symmetric_substitution = symmetric_substitution
-        self.default_substitution_cost = default_substitution_cost
-        self.default_insertion_cost = default_insertion_cost
-        self.default_deletion_cost = default_deletion_cost
-        self._calculator = RustLevenshteinCalculator(
-            substitution_costs=self.substitution_costs,
-            insertion_costs=self.insertion_costs,
-            deletion_costs=self.deletion_costs,
-            symmetric_substitution=symmetric_substitution,
-            default_substitution_cost=default_substitution_cost,
-            default_insertion_cost=default_insertion_cost,
-            default_deletion_cost=default_deletion_cost,
+        self._symmetric_substitution = symmetric_substitution
+        self._default_substitution_cost = self._validate_cost(
+            "default_substitution_cost", default_substitution_cost
         )
+        self._default_insertion_cost = self._validate_cost(
+            "default_insertion_cost", default_insertion_cost
+        )
+        self._default_deletion_cost = self._validate_cost(
+            "default_deletion_cost", default_deletion_cost
+        )
+
+        # Initialize Observable Dicts
+        sub_init = ocr_distance_map if substitution_costs is None else substitution_costs
+        self._substitution_costs = _ObservableDict(
+            sub_init, self._sync_calculator, self._validate_sub_entry
+        )
+        self._insertion_costs = _ObservableDict(
+            insertion_costs or {}, self._sync_calculator, self._validate_unary_entry
+        )
+        self._deletion_costs = _ObservableDict(
+            deletion_costs or {}, self._sync_calculator, self._validate_unary_entry
+        )
+
+        self._sync_calculator()
+
+    def _sync_calculator(self) -> None:
+        """Internal helper to re-instantiate the Rust backend when state changes."""
+        self._calculator = RustLevenshteinCalculator(
+            substitution_costs=self._substitution_costs,
+            insertion_costs=self._insertion_costs,
+            deletion_costs=self._deletion_costs,
+            symmetric_substitution=self._symmetric_substitution,
+            default_substitution_cost=self._default_substitution_cost,
+            default_insertion_cost=self._default_insertion_cost,
+            default_deletion_cost=self._default_deletion_cost,
+        )
+
+    # --- Properties ---
+
+    @property
+    def substitution_costs(self) -> dict[tuple[str, str], float]:
+        return self._substitution_costs
+
+    @substitution_costs.setter
+    def substitution_costs(self, value: dict[tuple[str, str], float]) -> None:
+        self._substitution_costs = _ObservableDict(
+            value, self._sync_calculator, self._validate_sub_entry
+        )
+        self._sync_calculator()
+
+    @property
+    def insertion_costs(self) -> dict[str, float]:
+        return self._insertion_costs
+
+    @insertion_costs.setter
+    def insertion_costs(self, value: dict[str, float]) -> None:
+        self._insertion_costs = _ObservableDict(
+            value, self._sync_calculator, self._validate_unary_entry
+        )
+        self._sync_calculator()
+
+    @property
+    def deletion_costs(self) -> dict[str, float]:
+        return self._deletion_costs
+
+    @deletion_costs.setter
+    def deletion_costs(self, value: dict[str, float]) -> None:
+        self._deletion_costs = _ObservableDict(
+            value, self._sync_calculator, self._validate_unary_entry
+        )
+        self._sync_calculator()
+
+    @property
+    def symmetric_substitution(self) -> bool:
+        return self._symmetric_substitution
+
+    @symmetric_substitution.setter
+    def symmetric_substitution(self, value: bool) -> None:
+        self._symmetric_substitution = value
+        self._sync_calculator()
+
+    @property
+    def default_substitution_cost(self) -> float:
+        return self._default_substitution_cost
+
+    @default_substitution_cost.setter
+    def default_substitution_cost(self, value: float) -> None:
+        self._default_substitution_cost = self._validate_cost("default_substitution_cost", value)
+        self._sync_calculator()
+
+    @property
+    def default_insertion_cost(self) -> float:
+        return self._default_insertion_cost
+
+    @default_insertion_cost.setter
+    def default_insertion_cost(self, value: float) -> None:
+        self._default_insertion_cost = self._validate_cost("default_insertion_cost", value)
+        self._sync_calculator()
+
+    @property
+    def default_deletion_cost(self) -> float:
+        return self._default_deletion_cost
+
+    @default_deletion_cost.setter
+    def default_deletion_cost(self, value: float) -> None:
+        self._default_deletion_cost = self._validate_cost("default_deletion_cost", value)
+        self._sync_calculator()
+
+    # --- Validation Helpers ---
+
+    def _validate_cost(self, name: str, val: float) -> float:
+        if not isinstance(val, (int, float)):
+            raise TypeError(f"{name} must be a number, but got: {type(val).__name__}")
+        if val < 0:
+            raise ValueError(f"{name} must be non-negative, got value: {val}")
+        return float(val)
+
+    def _validate_sub_entry(self, key: Any, cost: Any) -> None:
+        if not (isinstance(key, tuple) and len(key) == 2 and all(isinstance(k, str) for k in key)):
+            raise TypeError(f"substitution_costs keys must be tuples of two strings, found: {key}")
+        self._validate_cost(f"Cost for {key}", cost)
+
+    def _validate_unary_entry(self, key: Any, cost: Any) -> None:
+        if not isinstance(key, str):
+            raise TypeError(f"Cost keys must be strings, found: {key}")
+        self._validate_cost(f"Cost for {key}", cost)
 
     @classmethod
     def unweighted(cls) -> WeightedLevenshtein:
@@ -139,9 +212,7 @@ class WeightedLevenshtein:
         For repeated use, save via :meth:`to_dict` and reload via
         :meth:`from_dict` so the closure is computed once.
         """
-        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(
-            prune, max_node_length
-        )
+        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(prune, max_node_length)
         return WeightedLevenshtein(
             substitution_costs=dict(sub_dict),
             insertion_costs=dict(ins_dict),
