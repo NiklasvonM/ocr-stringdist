@@ -69,15 +69,39 @@ class WeightedLevenshtein:
 
     def _sync_calculator(self) -> None:
         """Internal helper to re-instantiate the Rust backend when state changes."""
+        substitution_costs, insertion_costs, deletion_costs = (
+            self._effective_cost_maps_for_calculator()
+        )
         self._calculator = RustLevenshteinCalculator(
-            substitution_costs=self._substitution_costs,
-            insertion_costs=self._insertion_costs,
-            deletion_costs=self._deletion_costs,
+            substitution_costs=substitution_costs,
+            insertion_costs=insertion_costs,
+            deletion_costs=deletion_costs,
             symmetric_substitution=self._symmetric_substitution,
             default_substitution_cost=self._default_substitution_cost,
             default_insertion_cost=self._default_insertion_cost,
             default_deletion_cost=self._default_deletion_cost,
         )
+
+    def _effective_cost_maps_for_calculator(
+        self,
+    ) -> tuple[dict[tuple[str, str], float], dict[str, float], dict[str, float]]:
+        substitution_costs: dict[tuple[str, str], float] = {}
+        insertion_costs = dict(self._insertion_costs)
+        deletion_costs = dict(self._deletion_costs)
+
+        for (source, target), cost in self._substitution_costs.items():
+            if source == "":
+                self._set_min_cost(insertion_costs, target, cost)
+            elif target == "":
+                self._set_min_cost(deletion_costs, source, cost)
+            else:
+                substitution_costs[(source, target)] = cost
+
+        return substitution_costs, insertion_costs, deletion_costs
+
+    @staticmethod
+    def _set_min_cost(costs: dict[str, float], key: str, cost: float) -> None:
+        costs[key] = min(costs.get(key, cost), cost)
 
     # --- Properties ---
 
@@ -164,6 +188,8 @@ class WeightedLevenshtein:
     def _validate_sub_entry(self, key: Any, cost: Any) -> None:
         if not (isinstance(key, tuple) and len(key) == 2 and all(isinstance(k, str) for k in key)):
             raise TypeError(f"substitution_costs keys must be tuples of two strings, found: {key}")
+        if key == ("", ""):
+            raise ValueError('substitution_costs key ("", "") is not a meaningful edit operation')
         self._validate_cost(f"Cost for {key}", cost)
 
     def _validate_unary_entry(self, key: Any, cost: Any) -> None:

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
+- Treat empty-sided substitution costs as insertion/deletion aliases.
 - Support for Python 3.14.
 
 ### Fixed

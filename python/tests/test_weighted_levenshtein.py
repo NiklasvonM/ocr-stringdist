@@ -458,6 +458,58 @@ def test_weighted_levenshtein_distance_with_insertion(
 
 
 @pytest.mark.parametrize(
+    ["substitution_costs", "source", "target", "expected"],
+    [
+        ({("", "ab"): 0.3}, "x", "xab", 0.3),
+        ({("cd", ""): 0.4}, "xcd", "x", 0.4),
+    ],
+)
+def test_empty_sided_substitution_costs_act_as_insertions_and_deletions(
+    substitution_costs: dict[tuple[str, str], float], source: str, target: str, expected: float
+) -> None:
+    assert WeightedLevenshtein(substitution_costs=substitution_costs).distance(
+        source, target
+    ) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ["substitution_costs", "insertion_costs", "deletion_costs", "source", "target", "expected"],
+    [
+        ({("", "a"): 0.2}, {"a": 0.5}, {}, "", "a", 0.2),
+        ({("a", ""): 0.2}, {}, {"a": 0.5}, "a", "", 0.2),
+    ],
+)
+def test_empty_sided_substitution_costs_use_minimum_with_explicit_unary_costs(
+    substitution_costs: dict[tuple[str, str], float],
+    insertion_costs: dict[str, float],
+    deletion_costs: dict[str, float],
+    source: str,
+    target: str,
+    expected: float,
+) -> None:
+    assert WeightedLevenshtein(
+        substitution_costs=substitution_costs,
+        insertion_costs=insertion_costs,
+        deletion_costs=deletion_costs,
+    ).distance(source, target) == pytest.approx(expected)
+
+
+def test_empty_sided_substitution_costs_are_not_mirrored_by_symmetric_substitution() -> None:
+    wl = WeightedLevenshtein(
+        substitution_costs={("", "a"): 0.2},
+        symmetric_substitution=True,
+    )
+
+    assert wl.distance("", "a") == pytest.approx(0.2)
+    assert wl.distance("a", "") == pytest.approx(1.0)
+
+
+def test_empty_to_empty_substitution_cost_is_rejected() -> None:
+    with pytest.raises(ValueError, match="not a meaningful edit operation"):
+        WeightedLevenshtein(substitution_costs={("", ""): 0.0})
+
+
+@pytest.mark.parametrize(
     ["s1", "s2", "ins_costs", "del_costs", "expected"],
     [
         # Multi-character insertion tests
