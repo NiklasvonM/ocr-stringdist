@@ -100,17 +100,20 @@ impl RustLevenshteinCalculator {
     /// Computes effective edit costs via transitive closure and returns three
     /// Python dicts: `(substitution_costs, insertion_costs, deletion_costs)`.
     /// Generated substitutions are pruned only when `prune` is true.
+    /// `max_node_length` caps the length of intermediate graph nodes; pass
+    /// `None` to derive it from the input.
     ///
     /// The Python wrapper assembles these into a new `WeightedLevenshtein`
     /// whose `.distance()` and `.explain()` use the closed costs directly.
-    #[pyo3(signature = (prune = false))]
+    #[pyo3(signature = (prune = false, max_node_length = None))]
     fn closed_cost_maps<'py>(
         &self,
         py: Python<'py>,
         prune: bool,
+        max_node_length: Option<usize>,
     ) -> PyResult<(Bound<'py, PyDict>, Bound<'py, PyDict>, Bound<'py, PyDict>)> {
         let (closed_sub, closed_ins, closed_del) =
-            compute_closed_cost_maps(&self.sub, &self.ins, &self.del, prune);
+            compute_closed_cost_maps(&self.sub, &self.ins, &self.del, prune, max_node_length);
 
         let sub_dict = PyDict::new(py);
         for ((source, target), cost) in closed_sub {
@@ -224,7 +227,7 @@ mod tests {
         Python::with_gil(|py| {
             let calc =
                 make_calculator(py, &[(("a", "b"), 0.1), (("b", "c"), 0.1)], &[], &[], false);
-            let (sub, _ins, _del) = calc.closed_cost_maps(py, false).unwrap();
+            let (sub, _ins, _del) = calc.closed_cost_maps(py, false, None).unwrap();
             let cost: f64 = sub
                 .get_item(("a".to_string(), "c".to_string()))
                 .unwrap()

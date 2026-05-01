@@ -100,7 +100,12 @@ class WeightedLevenshtein:
         """Creates an instance with all operations having equal cost of 1.0."""
         return cls(substitution_costs={}, insertion_costs={}, deletion_costs={})
 
-    def transitive_closure(self, *, prune: bool = False) -> WeightedLevenshtein:
+    def transitive_closure(
+        self,
+        *,
+        prune: bool = False,
+        max_node_length: Optional[int] = None,
+    ) -> WeightedLevenshtein:
         """
         Returns a new instance whose cost dictionaries are filled with effective
         (transitive) edit costs.
@@ -117,8 +122,16 @@ class WeightedLevenshtein:
                       shorter substitutions. This can make the returned cost map
                       easier to inspect, but it is much more expensive for large
                       closures.
-
-        Closure is bounded: very large cost maps may not be fully closed.
+        :param max_node_length: Maximum length (in characters) of intermediate
+                                graph nodes the closure may construct. ``None``
+                                derives a sensible default from the input
+                                (twice the longest raw token, with a small
+                                floor); pass an ``int`` to override. The cap is
+                                what guarantees termination — without it,
+                                configurations like ``ins("A")`` would grow the
+                                graph without bound. Floyd-Warshall is
+                                :math:`O(N^3)` in the resulting node count, so a
+                                higher cap can be substantially slower.
 
         ``explain()`` on the closed instance returns flat single-step ops; the
         original chain that produced an effective cost is not preserved.
@@ -126,7 +139,9 @@ class WeightedLevenshtein:
         For repeated use, save via :meth:`to_dict` and reload via
         :meth:`from_dict` so the closure is computed once.
         """
-        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(prune)
+        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(
+            prune, max_node_length
+        )
         return WeightedLevenshtein(
             substitution_costs=dict(sub_dict),
             insertion_costs=dict(ins_dict),
