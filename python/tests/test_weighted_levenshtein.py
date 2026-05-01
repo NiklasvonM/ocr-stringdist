@@ -551,13 +551,23 @@ def test_costs_above_default_cost() -> None:
     assert actual_cost == configured_cost
 
 
+def test_no_implicit_closure_in_constructor() -> None:
+    """Transitive paths are opt-in: the constructor does not run closure."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
+        symmetric_substitution=False,
+    )
+    # Without transitive_closure(), a->c falls back to the default 1.0.
+    assert wl.distance("a", "c") == pytest.approx(1.0)
+
+
 def test_transitive_deletion_chain_distance() -> None:
     """Issue #12: sub('6'->'G', 0.5) + del('G', 0.01) = 0.51 < direct del('6', 1.0)."""
     wl = WeightedLevenshtein(
         substitution_costs={("6", "G"): 0.5},
         deletion_costs={"G": 0.01},
         symmetric_substitution=False,
-    )
+    ).transitive_closure()
     assert wl.distance("06", "0") == pytest.approx(0.51)
 
 
@@ -568,7 +578,7 @@ def test_transitive_insertion_subtitution() -> None:
     wl = WeightedLevenshtein(
         insertion_costs={"A": 0.2},
         substitution_costs={("AAA", "B"): 0.1},
-    )
+    ).transitive_closure()
     assert wl.distance("A", "B") == pytest.approx(0.5)
 
 
@@ -579,7 +589,7 @@ def test_transitive_insertion_subtitution2() -> None:
     wl = WeightedLevenshtein(
         insertion_costs={"A": 0.2, "B": 0.3},
         substitution_costs={("AAB", "C"): 0.1},
-    )
+    ).transitive_closure()
     assert wl.distance("A", "C") == pytest.approx(0.6)
 
 
@@ -590,7 +600,7 @@ def test_transitive_insertion_deletion() -> None:
     wl = WeightedLevenshtein(
         insertion_costs={"B": 0.1},
         deletion_costs={"AB": 0.0},
-    )
+    ).transitive_closure()
     assert wl.distance("AC", "C") == pytest.approx(0.1)
 
 
@@ -600,7 +610,7 @@ def test_transitive_insertion_chain_distance() -> None:
         substitution_costs={("x", "y"): 0.2},
         insertion_costs={"x": 0.1},
         symmetric_substitution=False,
-    )
+    ).transitive_closure()
     assert wl.distance("a", "ay") == pytest.approx(0.3)
 
 
@@ -610,7 +620,7 @@ def test_direct_op_wins_when_chain_more_expensive() -> None:
         substitution_costs={("6", "G"): 0.5},
         deletion_costs={"6": 0.2, "G": 0.01},
         symmetric_substitution=False,
-    )
+    ).transitive_closure()
     assert wl.distance("06", "0") == pytest.approx(0.2)
 
 
@@ -619,32 +629,68 @@ def test_transitive_substitution_chain_distance() -> None:
     wl = WeightedLevenshtein(
         substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
         symmetric_substitution=False,
-    )
+    ).transitive_closure()
     assert wl.distance("a", "c") == pytest.approx(0.2)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Optimized transitive seeding does not create arbitrary token-to-token "
-        "shortcuts from full weighted DP alignments."
-    ),
-    strict=True,
-)
-def test_full_dp_seed_would_create_multi_edit_token_shortcut() -> None:
-    """
-    We only seed raw operations and targeted one-edit embedded
-    edges. Because these tokens are longer than the subtoken expansion cap, the
-    intermediate `source + "A"` node is absent, so the shortcut is not present.
-    """
-    source = "abcdefghijklmnopq"  # 17 chars: above MAX_SUBTOKEN_EXPANSION_CHARS
-    bridge = f"{source}AB"
-    target = "Z"
+def test_transitive_closure_returns_asymmetric_instance() -> None:
+    """Closure may break symmetry (e.g. via del+ins paths through ε), so the
+    returned instance is always asymmetric. Both directions of a symmetric
+    input are still preserved as explicit entries."""
+    wl_closed = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1},
+        symmetric_substitution=True,
+    ).transitive_closure()
+    assert wl_closed.symmetric_substitution is False
+    assert wl_closed.substitution_costs[("a", "b")] == pytest.approx(0.1)
+    assert wl_closed.substitution_costs[("b", "a")] == pytest.approx(0.1)
+
+
+def test_transitive_closure_idempotent_on_distance() -> None:
+    """Applying closure twice yields the same distances as applying it once."""
     wl = WeightedLevenshtein(
-        insertion_costs={"A": 0.2, "B": 0.3},
-        deletion_costs={source: 10.0},  # make `source` a graph token
-        substitution_costs={(bridge, target): 0.1},
+        substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
+        symmetric_substitution=False,
     )
-    assert wl.distance(source, target) == pytest.approx(0.6)
+    wl1 = wl.transitive_closure()
+    wl2 = wl1.transitive_closure()
+    for s, t in [("a", "c"), ("a", "b"), ("b", "c"), ("c", "a"), ("xy", "yx")]:
+        assert wl1.distance(s, t) == pytest.approx(wl2.distance(s, t))
+
+
+def test_transitive_closure_round_trip_via_dict() -> None:
+    """Closed costs survive serialization, so users can compute closure once."""
+    wl_orig = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
+        symmetric_substitution=False,
+    )
+    wl_closed = wl_orig.transitive_closure()
+    wl_reloaded = WeightedLevenshtein.from_dict(wl_closed.to_dict())
+    assert wl_reloaded.distance("a", "c") == pytest.approx(0.2)
+    assert wl_reloaded == wl_closed
+
+
+def test_transitive_closure_preserves_default_costs() -> None:
+    """The closed instance keeps the original default costs."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("a", "b"): 0.1},
+        default_substitution_cost=2.0,
+        default_insertion_cost=3.0,
+        default_deletion_cost=4.0,
+    ).transitive_closure()
+    assert wl.default_substitution_cost == 2.0
+    assert wl.default_insertion_cost == 3.0
+    assert wl.default_deletion_cost == 4.0
+
+
+def test_insert_delete_substitute_chain_distance() -> None:
+    """ADC -> AC -> ABC -> Z via del(D)=0.1 + ins(B)=0.1 + sub(ABC,Z)=0.1."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("ABC", "Z"): 0.1},
+        insertion_costs={"B": 0.1},
+        deletion_costs={"D": 0.1},
+    ).transitive_closure()
+    assert wl.distance("ADC", "Z") == pytest.approx(0.3)
 
 
 def test_serialization() -> None:

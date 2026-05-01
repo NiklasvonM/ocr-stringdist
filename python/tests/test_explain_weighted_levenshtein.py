@@ -78,118 +78,128 @@ def test_explain_weighted_levenshtein(
     assert sum(op.cost for op in full_operations) == wl.distance(s1, s2)
 
 
-def test_explain_transitive_deletion_chain() -> None:
-    """Issue #12: the explain path for '06'->'0' should expose the sub+del chain."""
+# Closure-flat explain tests
+#
+# After ``transitive_closure()``, the underlying chain that produced an
+# effective cost is no longer preserved. ``explain()`` returns a single
+# substitution / insertion / deletion at the effective cost. These tests
+# verify the flat output and that the total cost equals ``distance()``.
+
+
+def _flat_explain_assertions(
+    wl_closed: WeightedLevenshtein, s1: str, s2: str, expected_distance: float
+) -> list[EditOperation]:
+    ops = wl_closed.explain(s1, s2)
+    assert sum(op.cost for op in ops) == pytest.approx(expected_distance)
+    assert wl_closed.distance(s1, s2) == pytest.approx(expected_distance)
+    return ops
+
+
+def _assert_ops_equal(actual: list[EditOperation], expected: list[EditOperation]) -> None:
+    """Compare op sequences with float-tolerant cost equality."""
+    assert len(actual) == len(expected), f"length mismatch: {actual} vs {expected}"
+    for a, e in zip(actual, expected):
+        assert a.op_type == e.op_type
+        assert a.source_token == e.source_token
+        assert a.target_token == e.target_token
+        assert a.cost == pytest.approx(e.cost)
+
+
+def test_explain_transitive_deletion_chain_after_closure() -> None:
+    """After closure, '06' -> '0' is one effective deletion of '6' at 0.51."""
     wl = WeightedLevenshtein(
         substitution_costs={("6", "G"): 0.5},
         deletion_costs={"G": 0.01},
         symmetric_substitution=False,
-    )
-    ops = wl.explain("06", "0", filter_matches=False)
-    assert ops == [
-        EditOperation("match", "0", "0", 0.0),
-        EditOperation("substitute", "6", "G", 0.5),
-        EditOperation("delete", "G", None, 0.01),
-    ]
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "06", "0", 0.51)
+    assert ops == [EditOperation("delete", "6", None, 0.51)]
 
 
-def test_explain_transitive_substitution_chain() -> None:
-    """Triangle inequality: sub(a->b, 0.1) + sub(b->c, 0.1) should expand to two ops."""
+def test_explain_transitive_substitution_chain_after_closure() -> None:
+    """After closure, 'a' -> 'c' is one effective substitution at 0.2."""
     wl = WeightedLevenshtein(
         substitution_costs={("a", "b"): 0.1, ("b", "c"): 0.1},
         symmetric_substitution=False,
-    )
-    ops = wl.explain("a", "c", filter_matches=False)
-    assert ops == [
-        EditOperation("substitute", "a", "b", 0.1),
-        EditOperation("substitute", "b", "c", 0.1),
-    ]
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "a", "c", 0.2)
+    assert ops == [EditOperation("substitute", "a", "c", 0.2)]
 
 
-def test_explain_transitive_insertion_chain() -> None:
-    """Insertion analogue: ins('x') + sub('x'->'y') chain should appear in the path."""
+def test_explain_transitive_insertion_chain_after_closure() -> None:
+    """After closure, inserting 'y' is one effective insertion at 0.3."""
     wl = WeightedLevenshtein(
         substitution_costs={("x", "y"): 0.2},
         insertion_costs={"x": 0.1},
         symmetric_substitution=False,
-    )
-    ops = wl.explain("a", "ay", filter_matches=False)
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "a", "ay", 0.3)
     assert ops == [
-        EditOperation("match", "a", "a", 0.0),
-        EditOperation("insert", None, "x", 0.1),
-        EditOperation("substitute", "x", "y", 0.2),
+        EditOperation("insert", None, "y", 0.3),
     ]
 
 
-def test_explain_chain_with_expensive_direct_substitution() -> None:
-    """
-    Test that A->AA->AAA->B is explained instead of the more expensive A->B.
-    """
+def test_explain_chain_with_expensive_direct_substitution_after_closure() -> None:
+    """A->B with cheaper A->AAA->B chain becomes a single sub at 0.5."""
     wl = WeightedLevenshtein(
-        substitution_costs={("AAA", "B"): 0.1, ("A", "B"): 0.6}, insertion_costs={"A": 0.2}
-    )
-    ops = wl.explain("A", "B", filter_matches=True)
-    assert ops == [
-        EditOperation("insert", None, "A", 0.2),
-        EditOperation("insert", None, "A", 0.2),
-        EditOperation("substitute", "AAA", "B", 0.1),
-    ]
+        substitution_costs={("AAA", "B"): 0.1, ("A", "B"): 0.6},
+        insertion_costs={"A": 0.2},
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "A", "B", 0.5)
+    assert ops == [EditOperation("substitute", "A", "B", 0.5)]
 
 
-def test_explain_mixed_substitution_path_with_deletion() -> None:
-    """
-    Test that AB->A->C is expanded when it beats the direct AB->C substitution.
-    """
+def test_explain_mixed_substitution_path_with_deletion_after_closure() -> None:
+    """AB->C: closure prefers sub(A,C) + del(B) = 0.3 over the direct AB->C = 0.5."""
     wl = WeightedLevenshtein(
         substitution_costs={("A", "C"): 0.1, ("AB", "C"): 0.5},
         deletion_costs={"B": 0.2},
-    )
-    ops = wl.explain("AB", "C", filter_matches=True)
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "AB", "C", 0.3)
     assert ops == [
         EditOperation("substitute", "A", "C", 0.1),
         EditOperation("delete", "B", None, 0.2),
     ]
 
 
-def test_explain_direct_substitution_wins_over_mixed_chain() -> None:
-    """
-    Test that a cheaper direct A->B substitution is not expanded into A->AAA->B.
-    """
+def test_explain_direct_substitution_wins_over_chain_after_closure() -> None:
+    """A direct A->B at 0.4 beats A->AAA->B at 0.5; effective cost stays 0.4."""
     wl = WeightedLevenshtein(
         substitution_costs={("AAA", "B"): 0.1, ("A", "B"): 0.4},
         insertion_costs={"A": 0.2},
-    )
-    ops = wl.explain("A", "B", filter_matches=True)
-    assert ops == [
-        EditOperation("substitute", "A", "B", 0.4),
-    ]
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "A", "B", 0.4)
+    assert ops == [EditOperation("substitute", "A", "B", 0.4)]
 
 
-def test_explain_effective_deletion_with_insertion_then_deletion() -> None:
-    """
-    Test that AC->ABC->C is expanded as insert(B), delete(AB), match(C).
-    """
+def test_explain_effective_deletion_with_insertion_then_deletion_after_closure() -> None:
+    """AC -> C via insert(B)+del(AB)=0.1 becomes a single effective del('A') at 0.1."""
     wl = WeightedLevenshtein(
         insertion_costs={"B": 0.1},
         deletion_costs={"AB": 0.0},
-    )
-    ops = wl.explain("AC", "C", filter_matches=False)
-    assert ops == [
-        EditOperation("insert", None, "B", 0.1),
-        EditOperation("delete", "AB", None, 0.0),
-        EditOperation("match", "C", "C", 0.0),
-    ]
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "AC", "C", 0.1)
+    # The single effective op may be a del('A'), or another route at the same cost.
+    # Assert the explicit identity to lock down the canonical form:
+    assert ops == [EditOperation("delete", "A", None, 0.1)]
 
 
-def test_insert_delete_substitute_chain() -> None:
+def test_explain_insert_delete_substitute_chain_after_closure() -> None:
+    """ADC -> Z via del(D)+ins(B)+sub(ABC,Z) becomes a single sub at 0.3."""
     wl = WeightedLevenshtein(
         substitution_costs={("ABC", "Z"): 0.1},
         insertion_costs={"B": 0.1},
         deletion_costs={"D": 0.1},
-    )
-    ops = wl.explain("ADC", "Z")
-    assert ops == [
-        EditOperation("delete", "D", None, 0.1),
-        EditOperation("insert", None, "B", 0.1),
-        EditOperation("substitute", "ABC", "Z", 0.1),
-    ]
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "ADC", "Z", 0.3)
+    assert ops == [EditOperation("substitute", "ADC", "Z", 0.3)]
+
+
+def test_explain_single_char_composed_substitution_chain_after_closure() -> None:
+    """X -> Z via ins(AB)+sub(XAB,Z) becomes a single sub at 0.3."""
+    wl = WeightedLevenshtein(
+        substitution_costs={("XAB", "Z"): 0.1},
+        insertion_costs={"AB": 0.2},
+    ).transitive_closure()
+    ops = _flat_explain_assertions(wl, "X", "Z", 0.3)
+    assert ops == [EditOperation("substitute", "X", "Z", 0.3)]

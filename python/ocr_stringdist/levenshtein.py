@@ -100,6 +100,44 @@ class WeightedLevenshtein:
         """Creates an instance with all operations having equal cost of 1.0."""
         return cls(substitution_costs={}, insertion_costs={}, deletion_costs={})
 
+    def transitive_closure(self) -> WeightedLevenshtein:
+        """
+        Returns a new instance whose cost dictionaries are filled with effective
+        (transitive) edit costs.
+
+        If, for example, ``substitution_costs[("a", "b")] = 0.1`` and
+        ``substitution_costs[("b", "c")] = 0.1``, the closed instance's
+        ``substitution_costs[("a", "c")]`` is ``0.2`` rather than the default.
+        Insertion and deletion chains, and chains that cross ``ε`` (e.g.
+        ``del("y") + ins("x")`` becoming an effective ``("y", "x")`` substitution),
+        are likewise materialized.
+
+        The returned instance has ``symmetric_substitution=False`` because
+        closure may produce asymmetric pairs even when the input is symmetric.
+        Symmetric input is mirrored before closure, so both directions of every
+        original pair are still present in the result.
+
+        Closure is bounded: very large or pathological cost maps may not be
+        fully closed. The DP falls back to the configured default costs for any
+        ``(s, t)`` not in the resulting map.
+
+        ``explain()`` on the closed instance returns flat single-step ops; the
+        original chain that produced an effective cost is not preserved.
+
+        For repeated use, save via :meth:`to_dict` and reload via
+        :meth:`from_dict` so the closure is computed once.
+        """
+        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps()
+        return WeightedLevenshtein(
+            substitution_costs=dict(sub_dict),
+            insertion_costs=dict(ins_dict),
+            deletion_costs=dict(del_dict),
+            symmetric_substitution=False,
+            default_substitution_cost=self.default_substitution_cost,
+            default_insertion_cost=self.default_insertion_cost,
+            default_deletion_cost=self.default_deletion_cost,
+        )
+
     def distance(self, s1: str, s2: str) -> float:
         """Calculates the weighted Levenshtein distance between two strings."""
         return self._calculator.distance(s1, s2)  # type: ignore[no-any-return]

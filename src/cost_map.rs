@@ -17,6 +17,7 @@ impl CostKey for SubstitutionKey {}
 pub struct CostMap<K: CostKey> {
     pub costs: HashMap<K, f64>,
     default_cost: f64,
+    max_token_length: usize,
 }
 
 impl<K: CostKey> Default for CostMap<K>
@@ -27,6 +28,7 @@ where
         Self {
             costs: HashMap::new(),
             default_cost: 1.0,
+            max_token_length: 1,
         }
     }
 }
@@ -49,9 +51,17 @@ impl CostMap<SubstitutionKey> {
             }
         }
 
+        let max_token_length = costs
+            .keys()
+            .flat_map(|(s, t)| [s.chars().count(), t.chars().count()])
+            .max()
+            .unwrap_or(0)
+            .max(1);
+
         CostMap {
             costs,
             default_cost,
+            max_token_length,
         }
     }
 
@@ -71,14 +81,35 @@ impl CostMap<SubstitutionKey> {
 
         Self::new(substitution_costs, default_cost, symmetric)
     }
+
+    #[inline]
+    pub fn get_cost(&self, source: &str, target: &str) -> f64 {
+        self.costs
+            .get(&(source.to_string(), target.to_string()))
+            .copied()
+            .unwrap_or(self.default_cost)
+    }
+
+    #[inline]
+    pub fn has_key(&self, source: &str, target: &str) -> bool {
+        self.costs
+            .contains_key(&(source.to_string(), target.to_string()))
+    }
 }
 
 // Implementation for SingleTokenKey (single string)
 impl CostMap<SingleTokenKey> {
     pub fn new(custom_costs_input: SingleTokenCostMap, default_cost: f64) -> Self {
+        let max_token_length = custom_costs_input
+            .keys()
+            .map(|token| token.chars().count())
+            .max()
+            .unwrap_or(0)
+            .max(1);
         CostMap {
             costs: custom_costs_input,
             default_cost,
+            max_token_length,
         }
     }
 
@@ -98,12 +129,27 @@ impl CostMap<SingleTokenKey> {
 
         Self::new(single_token_costs, default_cost)
     }
+
+    #[inline]
+    pub fn get_cost(&self, token: &str) -> f64 {
+        self.costs.get(token).copied().unwrap_or(self.default_cost)
+    }
+
+    #[inline]
+    pub fn has_key(&self, token: &str) -> bool {
+        self.costs.contains_key(token)
+    }
 }
 
 // Common methods for any type of CostMap
 impl<K: CostKey> CostMap<K> {
     pub fn default_cost(&self) -> f64 {
         self.default_cost
+    }
+
+    #[inline]
+    pub fn max_token_length(&self) -> usize {
+        self.max_token_length
     }
 }
 
