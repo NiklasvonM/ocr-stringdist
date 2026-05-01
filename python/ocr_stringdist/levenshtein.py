@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, Optional
 
@@ -154,6 +155,8 @@ class WeightedLevenshtein:
     def _validate_cost(self, name: str, val: float) -> float:
         if not isinstance(val, (int, float)):
             raise TypeError(f"{name} must be a number, but got: {type(val).__name__}")
+        if not math.isfinite(val):
+            raise ValueError(f"{name} must be finite, got value: {val}")
         if val < 0:
             raise ValueError(f"{name} must be non-negative, got value: {val}")
         return float(val)
@@ -183,11 +186,11 @@ class WeightedLevenshtein:
         Returns a new instance whose cost dictionaries are filled with effective
         (transitive) edit costs.
 
-        If, for example, ``substitution_costs[("a", "b")] = 0.1`` and
-        ``substitution_costs[("b", "c")] = 0.1``, the closed instance's
-        ``substitution_costs[("a", "c")]`` is ``0.2`` rather than the default.
-        Insertion and deletion chains, and chains that cross ``ε`` (e.g.
-        ``del("y") + ins("x")`` becoming an effective ``("y", "x")`` substitution),
+        If, for example, `substitution_costs[("a", "b")] = 0.1` and
+        `substitution_costs[("b", "c")] = 0.1`, the closed instance's
+        `substitution_costs[("a", "c")]` is `0.2` rather than the default.
+        Insertion and deletion chains, and chains that cross `ε` (e.g.
+        `del("y") + ins("x")` becoming an effective `("y", "x")` substitution),
         are likewise materialized.
 
         :param prune: If True, remove generated substitutions whose costs are
@@ -196,15 +199,17 @@ class WeightedLevenshtein:
                       easier to inspect, but it is much more expensive for large
                       closures.
         :param max_node_length: Maximum length (in characters) of intermediate
-                                graph nodes the closure may construct. ``None``
+                                graph nodes the closure may construct. `None`
                                 derives a sensible default from the input
                                 (twice the longest raw token, with a small
-                                floor); pass an ``int`` to override. The cap is
+                                floor); pass an `int` to override. The cap is
                                 what guarantees termination — without it,
-                                configurations like ``ins("A")`` would grow the
+                                configurations like `ins("A")` would grow the
                                 graph without bound. Floyd-Warshall is
                                 :math:`O(N^3)` in the resulting node count, so a
                                 higher cap can be substantially slower.
+        :raises ValueError: If the generated closure graph is too large to
+                            process safely.
 
         ``explain()`` on the closed instance returns flat single-step ops; the
         original chain that produced an effective cost is not preserved.

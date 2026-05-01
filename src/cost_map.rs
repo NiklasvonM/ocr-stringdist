@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// A trait for cost map keys, allowing us to constrain the generic parameter
@@ -45,9 +46,9 @@ impl CostMap<SubstitutionKey> {
         let mut costs = HashMap::with_capacity(custom_costs_input.len() * 2);
 
         for ((s1, s2), cost) in custom_costs_input {
-            costs.entry((s1.clone(), s2.clone())).or_insert(cost);
+            insert_min_cost(&mut costs, (s1.clone(), s2.clone()), cost);
             if symmetric {
-                costs.entry((s2.clone(), s1.clone())).or_insert(cost);
+                insert_min_cost(&mut costs, (s2.clone(), s1.clone()), cost);
             }
         }
 
@@ -65,21 +66,26 @@ impl CostMap<SubstitutionKey> {
         }
     }
 
-    pub fn from_py_dict<'a, D>(py_dict: &'a D, default_cost: f64, symmetric: bool) -> Self
+    pub fn from_py_dict<'a, D>(py_dict: &'a D, default_cost: f64, symmetric: bool) -> PyResult<Self>
     where
         D: PyDictMethods<'a>,
     {
         let mut substitution_costs = SubstitutionCostMap::new();
 
         for (key, value) in py_dict.iter() {
-            if let Ok(key_tuple) = key.extract::<(String, String)>() {
-                if let Ok(cost) = value.extract::<f64>() {
-                    substitution_costs.insert((key_tuple.0, key_tuple.1), cost);
-                }
-            }
+            let key_tuple = key.extract::<(String, String)>()?;
+            let cost = value.extract::<f64>()?;
+            validate_cost(
+                cost,
+                &format!(
+                    "Substitution cost for key ({}, {})",
+                    key_tuple.0, key_tuple.1
+                ),
+            )?;
+            substitution_costs.insert((key_tuple.0, key_tuple.1), cost);
         }
 
-        Self::new(substitution_costs, default_cost, symmetric)
+        Ok(Self::new(substitution_costs, default_cost, symmetric))
     }
 
     #[inline]
@@ -113,21 +119,20 @@ impl CostMap<SingleTokenKey> {
         }
     }
 
-    pub fn from_py_dict<'a, D>(py_dict: &'a D, default_cost: f64) -> Self
+    pub fn from_py_dict<'a, D>(py_dict: &'a D, default_cost: f64) -> PyResult<Self>
     where
         D: PyDictMethods<'a>,
     {
         let mut single_token_costs = SingleTokenCostMap::new();
 
         for (key, value) in py_dict.iter() {
-            if let Ok(token) = key.extract::<String>() {
-                if let Ok(cost) = value.extract::<f64>() {
-                    single_token_costs.insert(token, cost);
-                }
-            }
+            let token = key.extract::<String>()?;
+            let cost = value.extract::<f64>()?;
+            validate_cost(cost, "Cost")?;
+            single_token_costs.insert(token, cost);
         }
 
-        Self::new(single_token_costs, default_cost)
+        Ok(Self::new(single_token_costs, default_cost))
     }
 
     #[inline]
@@ -139,6 +144,27 @@ impl CostMap<SingleTokenKey> {
     pub fn has_key(&self, token: &str) -> bool {
         self.costs.contains_key(token)
     }
+}
+
+fn insert_min_cost<K: CostKey>(costs: &mut HashMap<K, f64>, key: K, cost: f64) {
+    costs
+        .entry(key)
+        .and_modify(|existing| *existing = (*existing).min(cost))
+        .or_insert(cost);
+}
+
+pub(crate) fn validate_cost(cost: f64, label: &str) -> PyResult<()> {
+    if !cost.is_finite() {
+        return Err(PyValueError::new_err(format!(
+            "{label} must be finite, got value: {cost}"
+        )));
+    }
+    if cost < 0.0 {
+        return Err(PyValueError::new_err(format!(
+            "{label} must be non-negative, got value: {cost}"
+        )));
+    }
+    Ok(())
 }
 
 // Common methods for any type of CostMap
@@ -196,6 +222,18 @@ mod tests {
             .costs
             .contains_key(&("b".to_string(), "a".to_string())));
         assert_eq!(cost_map.default_cost(), 1.5);
+    }
+
+    #[test]
+    fn test_symmetric_substitution_map_conflicts_use_minimum_cost() {
+        let mut custom_costs = SubstitutionCostMap::new();
+        custom_costs.insert(("a".to_string(), "b".to_string()), 0.4);
+        custom_costs.insert(("b".to_string(), "a".to_string()), 0.2);
+
+        let cost_map = CostMap::<SubstitutionKey>::new(custom_costs, 1.0, true);
+
+        assert_eq!(cost_map.costs[&("a".to_string(), "b".to_string())], 0.2);
+        assert_eq!(cost_map.costs[&("b".to_string(), "a".to_string())], 0.2);
     }
 
     #[test]

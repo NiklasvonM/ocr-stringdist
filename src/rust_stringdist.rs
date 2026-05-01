@@ -1,4 +1,4 @@
-use crate::cost_map::CostMap;
+use crate::cost_map::{validate_cost, CostMap};
 use crate::explanation::EditOperation;
 use crate::transitive_costs::compute_closed_cost_maps;
 use crate::types::{SingleTokenKey, SubstitutionKey};
@@ -59,17 +59,17 @@ impl RustLevenshteinCalculator {
         default_insertion_cost: f64,
         default_deletion_cost: f64,
     ) -> PyResult<Self> {
-        validate_default_cost(default_substitution_cost)?;
-        validate_default_cost(default_insertion_cost)?;
-        validate_default_cost(default_deletion_cost)?;
+        validate_cost(default_substitution_cost, "Default substitution cost")?;
+        validate_cost(default_insertion_cost, "Default insertion cost")?;
+        validate_cost(default_deletion_cost, "Default deletion cost")?;
 
         let sub = CostMap::<SubstitutionKey>::from_py_dict(
             substitution_costs,
             default_substitution_cost,
             symmetric_substitution,
-        );
-        let ins = CostMap::<SingleTokenKey>::from_py_dict(insertion_costs, default_insertion_cost);
-        let del = CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost);
+        )?;
+        let ins = CostMap::<SingleTokenKey>::from_py_dict(insertion_costs, default_insertion_cost)?;
+        let del = CostMap::<SingleTokenKey>::from_py_dict(deletion_costs, default_deletion_cost)?;
 
         Ok(Self { sub, ins, del })
     }
@@ -113,7 +113,8 @@ impl RustLevenshteinCalculator {
         max_node_length: Option<usize>,
     ) -> PyResult<(Bound<'py, PyDict>, Bound<'py, PyDict>, Bound<'py, PyDict>)> {
         let (closed_sub, closed_ins, closed_del) =
-            compute_closed_cost_maps(&self.sub, &self.ins, &self.del, prune, max_node_length);
+            compute_closed_cost_maps(&self.sub, &self.ins, &self.del, prune, max_node_length)
+                .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         let sub_dict = PyDict::new(py);
         for ((source, target), cost) in closed_sub {
@@ -134,15 +135,6 @@ impl RustLevenshteinCalculator {
     }
 }
 
-fn validate_default_cost(default_cost: f64) -> PyResult<()> {
-    if default_cost < 0.0 {
-        return Err(PyValueError::new_err(format!(
-            "Default cost must be non-negative, got value: {default_cost}"
-        )));
-    }
-    Ok(())
-}
-
 #[pymodule]
 pub fn _rust_stringdist(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RustLevenshteinCalculator>()?;
@@ -152,6 +144,7 @@ pub fn _rust_stringdist(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pyo3::exceptions::PyValueError;
     use pyo3::types::{PyDict, PyList, PyTuple};
 
     fn make_calculator(

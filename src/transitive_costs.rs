@@ -15,6 +15,7 @@ use crate::cost_map::CostMap;
 use crate::types::{SingleTokenCostMap, SingleTokenKey, SubstitutionCostMap, SubstitutionKey};
 use crate::weighted_levenshtein::custom_levenshtein_distance;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 // When the caller passes `None` for `max_node_length`, the cap is derived as
 // `max(longest raw token across all maps) * MAX_NODE_LENGTH_MULTIPLIER`, with a
@@ -26,6 +27,27 @@ const MAX_NODE_LENGTH_MULTIPLIER: usize = 2;
 const MIN_DERIVED_NODE_LENGTH: usize = 4;
 
 const REDUNDANT_SUBSTITUTION_EPSILON: f64 = 1e-9;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransitiveCostError {
+    MatrixSizeOverflow { node_count: usize },
+    MatrixAllocationFailed { node_count: usize, bytes: usize },
+}
+
+impl fmt::Display for TransitiveCostError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MatrixSizeOverflow { node_count } => write!(
+                f,
+                "transitive closure generated {node_count} graph nodes, too many to address in a dense matrix; pass a smaller max_node_length or reduce the number of configured insertion/deletion tokens"
+            ),
+            Self::MatrixAllocationFailed { node_count, bytes } => write!(
+                f,
+                "transitive closure generated {node_count} graph nodes and could not allocate a {bytes}-byte dense matrix; pass a smaller max_node_length or reduce the number of configured insertion/deletion tokens"
+            ),
+        }
+    }
+}
 
 /// Interned identifier for a token graph node.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -51,11 +73,22 @@ struct Matrix<T> {
 }
 
 impl<T: Clone> Matrix<T> {
-    fn filled(width: usize, value: T) -> Self {
-        Self {
-            width,
-            cells: vec![value; width * width],
-        }
+    fn try_filled(width: usize, value: T) -> Result<Self, TransitiveCostError> {
+        let cell_count = width
+            .checked_mul(width)
+            .ok_or(TransitiveCostError::MatrixSizeOverflow { node_count: width })?;
+        let bytes = cell_count
+            .checked_mul(std::mem::size_of::<T>())
+            .unwrap_or(usize::MAX);
+        let mut cells = Vec::new();
+        cells.try_reserve_exact(cell_count).map_err(|_| {
+            TransitiveCostError::MatrixAllocationFailed {
+                node_count: width,
+                bytes,
+            }
+        })?;
+        cells.resize(cell_count, value);
+        Ok(Self { width, cells })
     }
 }
 
@@ -94,7 +127,7 @@ pub fn compute_closed_cost_maps(
     del: &CostMap<SingleTokenKey>,
     prune: bool,
     max_node_length: Option<usize>,
-) -> (SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap) {
+) -> Result<(SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap), TransitiveCostError> {
     let max_node_length = max_node_length.unwrap_or_else(|| derive_max_node_length(sub, ins, del));
     let tokens = collect_nodes(sub, ins, del, max_node_length);
     let token_to_id: HashMap<&str, NodeId> = tokens
@@ -103,7 +136,7 @@ pub fn compute_closed_cost_maps(
         .map(|(i, token)| (token.as_str(), NodeId::new(i)))
         .collect();
     let epsilon_id = token_to_id[""];
-    let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del);
+    let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del)?;
 
     let closed_ins = project_single_token(&tokens, &token_to_id, &dist, ins, epsilon_id, true);
     let closed_del = project_single_token(&tokens, &token_to_id, &dist, del, epsilon_id, false);
@@ -114,7 +147,7 @@ pub fn compute_closed_cost_maps(
         closed_sub
     };
 
-    (closed_sub, closed_ins, closed_del)
+    Ok((closed_sub, closed_ins, closed_del))
 }
 
 /// Default `max_node_length` derivation: twice the longest raw token across all
@@ -278,9 +311,9 @@ fn run_closure(
     sub: &CostMap<SubstitutionKey>,
     ins: &CostMap<SingleTokenKey>,
     del: &CostMap<SingleTokenKey>,
-) -> Matrix<f64> {
+) -> Result<Matrix<f64>, TransitiveCostError> {
     let n = tokens.len();
-    let mut dist = Matrix::filled(n, f64::INFINITY);
+    let mut dist = Matrix::try_filled(n, f64::INFINITY)?;
 
     for index in 0..n {
         let node = NodeId::new(index);
@@ -310,7 +343,7 @@ fn run_closure(
 
     seed_embedded_edges(tokens, token_to_id, ins, del, &mut dist);
     floyd_warshall(&mut dist);
-    dist
+    Ok(dist)
 }
 
 #[inline]
@@ -525,6 +558,16 @@ mod tests {
             map.insert((*k).to_string(), *v);
         }
         CostMap::<SingleTokenKey>::new(map, default)
+    }
+
+    fn compute_closed_cost_maps(
+        sub: &CostMap<SubstitutionKey>,
+        ins: &CostMap<SingleTokenKey>,
+        del: &CostMap<SingleTokenKey>,
+        prune: bool,
+        max_node_length: Option<usize>,
+    ) -> (SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap) {
+        super::compute_closed_cost_maps(sub, ins, del, prune, max_node_length).unwrap()
     }
 
     #[test]
@@ -878,6 +921,17 @@ mod tests {
         let del = make_single(&[], 1.0);
         let (closed_sub, _, _) = compute_closed_cost_maps(&sub, &ins, &del, false, None);
         assert!(approx(closed_sub[&("é".to_string(), "è".to_string())], 0.2));
+    }
+
+    #[test]
+    fn matrix_allocation_checks_size_overflow() {
+        let err = Matrix::<f64>::try_filled(usize::MAX, 0.0).unwrap_err();
+        assert!(matches!(
+            err,
+            TransitiveCostError::MatrixSizeOverflow {
+                node_count: usize::MAX
+            }
+        ));
     }
 
     // --- pruning ----------------------------------------------------------------

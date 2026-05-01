@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
 - Support for Python 3.14.
 
+### Fixed
+
+- Use the minimum cost for conflicting symmetric substitutions.
+
 ## [1.0.1] - 2025-09-21
 
 ### Fixed
