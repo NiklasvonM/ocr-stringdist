@@ -28,8 +28,15 @@ const MIN_DERIVED_NODE_LENGTH: usize = 4;
 
 const REDUNDANT_SUBSTITUTION_EPSILON: f64 = 1e-9;
 
+/// `NodeId` interns indices as `u32`, so the number of graph nodes is bounded
+/// by `u32::MAX`. Reaching this limit at human-sized inputs is implausible —
+/// it requires the closure to construct ~4 billion distinct strings — but the
+/// check exists so `NodeId::new` never panics from inside `compute_closed_cost_maps`.
+const MAX_NODE_COUNT: usize = u32::MAX as usize;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransitiveCostError {
+    NodeIdOverflow { node_count: usize },
     MatrixSizeOverflow { node_count: usize },
     MatrixAllocationFailed { node_count: usize, bytes: usize },
 }
@@ -37,6 +44,10 @@ pub enum TransitiveCostError {
 impl fmt::Display for TransitiveCostError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NodeIdOverflow { node_count } => write!(
+                f,
+                "transitive closure generated {node_count} graph nodes, exceeding the {MAX_NODE_COUNT}-node addressing limit; pass a smaller max_node_length or reduce the number of configured insertion/deletion tokens"
+            ),
             Self::MatrixSizeOverflow { node_count } => write!(
                 f,
                 "transitive closure generated {node_count} graph nodes, too many to address in a dense matrix; pass a smaller max_node_length or reduce the number of configured insertion/deletion tokens"
@@ -77,9 +88,7 @@ impl<T: Clone> Matrix<T> {
         let cell_count = width
             .checked_mul(width)
             .ok_or(TransitiveCostError::MatrixSizeOverflow { node_count: width })?;
-        let bytes = cell_count
-            .checked_mul(std::mem::size_of::<T>())
-            .unwrap_or(usize::MAX);
+        let bytes = cell_count.saturating_mul(std::mem::size_of::<T>());
         let mut cells = Vec::new();
         cells.try_reserve_exact(cell_count).map_err(|_| {
             TransitiveCostError::MatrixAllocationFailed {
@@ -116,8 +125,8 @@ impl<T> Matrix<T> {
 /// growth phase may construct and of substrings expanded from raw tokens. Pass
 /// `None` to derive a sensible default from the input
 /// (`max raw-token length × 2`, floored at `MIN_DERIVED_NODE_LENGTH`); pass
-/// `Some(n)` to override. The cap is what guarantees termination — without it,
-/// configurations like `ins("A")` produce an infinite graph.
+/// `Some(n)` to override. The cap is what guarantees termination - without it,
+/// the graph could grow without bound.
 ///
 /// If `prune` is true, generated substitutions that the returned edit maps can
 /// already express are removed from the substitution map.
@@ -130,6 +139,11 @@ pub fn compute_closed_cost_maps(
 ) -> Result<(SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap), TransitiveCostError> {
     let max_node_length = max_node_length.unwrap_or_else(|| derive_max_node_length(sub, ins, del));
     let tokens = collect_nodes(sub, ins, del, max_node_length);
+    if tokens.len() > MAX_NODE_COUNT {
+        return Err(TransitiveCostError::NodeIdOverflow {
+            node_count: tokens.len(),
+        });
+    }
     let token_to_id: HashMap<&str, NodeId> = tokens
         .iter()
         .enumerate()
@@ -202,39 +216,52 @@ fn collect_nodes(
     // produces predecessors that lie one configured ins/del edge away. This is
     // what lets the closure bridge a user-provided source like "ADC" through
     // intermediate nodes "AC" and "ABC" to a configured target "Z".
-    let single_op_tokens: Vec<String> = ins
+    //
+    // Pre-compute char counts once: the inner loop checks them against the cap
+    // for every source.
+    let single_op_tokens: Vec<(String, usize)> = ins
         .costs
         .keys()
         .cloned()
         .chain(del.costs.keys().cloned())
         .collect::<HashSet<_>>()
         .into_iter()
+        .map(|token| {
+            let len = token.chars().count();
+            (token, len)
+        })
         .collect();
 
-    // Run growth to fixpoint. The length cap bounds the set of strings reachable
-    // from the seeds, so this terminates after a finite number of rounds for any
-    // input — typically only a handful, even for large maps.
-    loop {
-        let snapshot: Vec<String> = tokens.iter().cloned().collect();
-        let prev_size = snapshot.len();
-
-        for source in &snapshot {
+    // Worklist-style growth: each round only processes tokens discovered in the
+    // previous round, since older tokens already produced everything they can.
+    // Both gates check the produced length against the cap — insertion can
+    // overrun by lengthening, and deletion can overrun when an oversize raw
+    // seed (longer than `max_node_length`) is shortened to something still
+    // above the cap. The length cap bounds the total set, so the worklist
+    // drains in finitely many rounds.
+    let mut frontier: Vec<String> = tokens.iter().cloned().collect();
+    while !frontier.is_empty() {
+        let mut next_frontier: Vec<String> = Vec::new();
+        for source in &frontier {
             let source_len = source.chars().count();
-            for op_token in &single_op_tokens {
-                if source_len + op_token.chars().count() <= max_node_length {
+            for (op_token, op_len) in &single_op_tokens {
+                if source_len + *op_len <= max_node_length {
                     for variant in insert_token_variants(source, op_token) {
-                        tokens.insert(variant);
+                        if tokens.insert(variant.clone()) {
+                            next_frontier.push(variant);
+                        }
                     }
                 }
-                for variant in delete_token_variants(source, op_token) {
-                    tokens.insert(variant);
+                if source_len.saturating_sub(*op_len) <= max_node_length {
+                    for variant in delete_token_variants(source, op_token) {
+                        if tokens.insert(variant.clone()) {
+                            next_frontier.push(variant);
+                        }
+                    }
                 }
             }
         }
-
-        if tokens.len() == prev_size {
-            break;
-        }
+        frontier = next_frontier;
     }
 
     tokens.into_iter().collect()
@@ -932,6 +959,28 @@ mod tests {
                 node_count: usize::MAX
             }
         ));
+    }
+
+    #[test]
+    fn growth_does_not_overrun_cap_via_deletion_from_oversize_seed() {
+        // "LONGSTRING" (10 chars) is a raw substitution endpoint and is
+        // always seeded into the node set. With a configured `del("LON")`
+        // the previous, ungated deletion would have spawned "GSTRING"
+        // (7 chars) from it — still over the 4-char cap. The symmetric
+        // deletion gate prevents that.
+        let sub = make_sub(&[(("LONGSTRING", "X"), 0.1)], 1.0, false);
+        let ins = make_single(&[], 1.0);
+        let del = make_single(&[("LON", 0.1)], 1.0);
+
+        let nodes = super::collect_nodes(&sub, &ins, &del, 4);
+        let raw_seeds: HashSet<&str> = ["LONGSTRING"].into_iter().collect();
+        for token in &nodes {
+            let len = token.chars().count();
+            assert!(
+                len <= 4 || raw_seeds.contains(token.as_str()),
+                "node {token:?} of length {len} exceeds cap and is not a raw seed"
+            );
+        }
     }
 
     // --- pruning ----------------------------------------------------------------

@@ -38,5 +38,5 @@ ocr_distance_map: dict[tuple[str, str], float] = {
 """
 Pre-defined distance map between characters, considering common OCR errors.
 The distances are between 0 and 1.
-This map is intended to be used with `symmetric=True`.
+This map is intended to be used with `symmetric_substitution=True`.
 """

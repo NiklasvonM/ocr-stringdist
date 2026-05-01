@@ -229,9 +229,8 @@ class WeightedLevenshtein:
                                 derives a sensible default from the input
                                 (twice the longest raw token, with a small
                                 floor); pass an `int` to override. The cap is
-                                what guarantees termination — without it,
-                                configurations like `ins("A")` would grow the
-                                graph without bound. Floyd-Warshall is
+                                what guarantees termination - without it,
+                                the graph could grow without bound. Floyd-Warshall is
                                 :math:`O(N^3)` in the resulting node count, so a
                                 higher cap can be substantially slower.
         :raises ValueError: If the generated closure graph is too large to

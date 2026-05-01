@@ -78,7 +78,6 @@ def test_batch_finds_best_match(
     distances = WeightedLevenshtein(
         substitution_costs=OCR_COST_MAP,
     ).batch_distance(source, candidates)
-    print(f"------------------------------------distances: {distances}")
 
     # Find the index with minimum distance
     min_index = distances.index(min(distances))
