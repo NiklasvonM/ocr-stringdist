@@ -82,7 +82,7 @@ impl RustLevenshteinCalculator {
         if candidates.is_empty() {
             return Vec::new();
         }
-        py.allow_threads(|| {
+        py.detach(|| {
             candidates
                 .par_iter()
                 .map(|c| custom_levenshtein_distance(&s, c, &self.sub, &self.ins, &self.del))
@@ -90,11 +90,11 @@ impl RustLevenshteinCalculator {
         })
     }
 
-    fn explain(&self, py: Python<'_>, a: &str, b: &str) -> PyResult<Vec<PyObject>> {
+    fn explain(&self, py: Python<'_>, a: &str, b: &str) -> PyResult<Vec<Py<PyAny>>> {
         explain_custom_levenshtein(a, b, &self.sub, &self.ins, &self.del)
             .into_iter()
             .map(|op| op.into_pyobject(py).map(|bound| bound.into()))
-            .collect::<PyResult<Vec<PyObject>>>()
+            .collect::<PyResult<Vec<Py<PyAny>>>>()
     }
 
     /// Computes effective edit costs via transitive closure and returns three
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_distance_with_empty_costs() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc = make_calculator(py, &[], &[], &[], true);
             assert_eq!(calc.distance("hello", "hxllo"), 1.0);
         });
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_distance_with_custom_substitution_cost() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc = make_calculator(py, &[(("e", "x"), 0.2)], &[], &[], true);
             assert!((calc.distance("hello", "hxllo") - 0.2).abs() < f64::EPSILON);
         });
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_asymmetric_substitution() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc = make_calculator(py, &[(("a", "b"), 0.1)], &[], &[], false);
             assert!((calc.distance("ab", "ba") - 1.1).abs() < f64::EPSILON);
         });
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_negative_default_cost_errors() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let empty = PyDict::new(py);
             let sub_err =
                 RustLevenshteinCalculator::new(&empty, &empty, &empty, true, -1.0, 1.0, 1.0);
@@ -208,7 +208,7 @@ mod tests {
     fn test_constructor_does_not_apply_closure() {
         // Without calling closed_cost_maps, transitive paths are not auto-applied.
         // sub(a->b)=0.1, sub(b->c)=0.1: direct a->c lookup falls back to default 1.0.
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc =
                 make_calculator(py, &[(("a", "b"), 0.1), (("b", "c"), 0.1)], &[], &[], false);
             assert!((calc.distance("a", "c") - 1.0).abs() < f64::EPSILON);
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_closed_cost_maps_finds_chain() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc =
                 make_calculator(py, &[(("a", "b"), 0.1), (("b", "c"), 0.1)], &[], &[], false);
             let (sub, _ins, _del) = calc.closed_cost_maps(py, false, None).unwrap();
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_explain() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc = make_calculator(py, &[], &[], &[], true);
             let result = calc.explain(py, "cat", "car").unwrap();
             let py_list = PyList::new(py, result).unwrap();
@@ -242,7 +242,7 @@ mod tests {
                 py_list
                     .get_item(i)
                     .unwrap()
-                    .downcast_into::<PyTuple>()
+                    .cast_into::<PyTuple>()
                     .unwrap()
                     .get_item(0)
                     .unwrap()
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_batch_distance() {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let calc = make_calculator(py, &[], &[], &[], true);
             let distances = calc.batch_distance(
                 py,
