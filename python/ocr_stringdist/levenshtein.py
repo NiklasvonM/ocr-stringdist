@@ -321,6 +321,30 @@ class WeightedLevenshtein:
 
         return CostLearner().fit(pairs)
 
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}("
+            f"substitution_costs={dict(self._substitution_costs)!r}, "
+            f"insertion_costs={dict(self._insertion_costs)!r}, "
+            f"deletion_costs={dict(self._deletion_costs)!r}, "
+            f"symmetric_substitution={self._symmetric_substitution!r}, "
+            f"default_substitution_cost={self._default_substitution_cost!r}, "
+            f"default_insertion_cost={self._default_insertion_cost!r}, "
+            f"default_deletion_cost={self._default_deletion_cost!r})"
+        )
+
+    def __str__(self) -> str:
+        return (
+            f"{type(self).__name__}("
+            f"substitution_costs=<{len(self._substitution_costs)} entries>, "
+            f"insertion_costs=<{len(self._insertion_costs)} entries>, "
+            f"deletion_costs=<{len(self._deletion_costs)} entries>, "
+            f"symmetric_substitution={self._symmetric_substitution}, "
+            f"default_substitution_cost={self._default_substitution_cost}, "
+            f"default_insertion_cost={self._default_insertion_cost}, "
+            f"default_deletion_cost={self._default_deletion_cost})"
+        )
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, WeightedLevenshtein):
             return NotImplemented

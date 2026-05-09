@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
 - Support for Python 3.14.
+- `__str__` and `__repr__` methods for `WeightedLevenshtein`.
 
 ### Changed
 
