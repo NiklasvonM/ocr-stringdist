@@ -139,6 +139,25 @@ pub fn compute_closed_cost_maps(
 ) -> Result<(SubstitutionCostMap, SingleTokenCostMap, SingleTokenCostMap), TransitiveCostError> {
     let max_node_length = max_node_length.unwrap_or_else(|| derive_max_node_length(sub, ins, del));
     let tokens = collect_nodes(sub, ins, del, max_node_length);
+    let (token_to_id, epsilon_id) = build_token_index(&tokens)?;
+    let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del)?;
+
+    let closed_ins = project_single_token(&tokens, &token_to_id, &dist, ins, epsilon_id, true);
+    let closed_del = project_single_token(&tokens, &token_to_id, &dist, del, epsilon_id, false);
+    let mut closed_sub = project_substitutions(&tokens, &token_to_id, &dist, sub);
+    if prune {
+        closed_sub =
+            prune_redundant_substitutions(closed_sub, &closed_ins, &closed_del, sub, ins, del);
+    }
+
+    Ok((closed_sub, closed_ins, closed_del))
+}
+
+/// Interns tokens as `NodeId`s and locates the ε node. Returns
+/// `NodeIdOverflow` if the token set exceeds the addressable range.
+fn build_token_index(
+    tokens: &[String],
+) -> Result<(HashMap<&str, NodeId>, NodeId), TransitiveCostError> {
     if tokens.len() > MAX_NODE_COUNT {
         return Err(TransitiveCostError::NodeIdOverflow {
             node_count: tokens.len(),
@@ -150,18 +169,7 @@ pub fn compute_closed_cost_maps(
         .map(|(i, token)| (token.as_str(), NodeId::new(i)))
         .collect();
     let epsilon_id = *token_to_id.get("").expect("epsilon node must exist");
-    let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del)?;
-
-    let closed_ins = project_single_token(&tokens, &token_to_id, &dist, ins, epsilon_id, true);
-    let closed_del = project_single_token(&tokens, &token_to_id, &dist, del, epsilon_id, false);
-    let closed_sub = project_substitutions(&tokens, &token_to_id, &dist, sub);
-    let closed_sub = if prune {
-        prune_redundant_substitutions(closed_sub, &closed_ins, &closed_del, sub, ins, del)
-    } else {
-        closed_sub
-    };
-
-    Ok((closed_sub, closed_ins, closed_del))
+    Ok((token_to_id, epsilon_id))
 }
 
 /// Default `max_node_length` derivation: twice the longest raw token across all
@@ -376,38 +384,62 @@ fn run_closure(
     ins: &CostMap<SingleTokenKey>,
     del: &CostMap<SingleTokenKey>,
 ) -> Result<Matrix<f64>, TransitiveCostError> {
-    let n = tokens.len();
-    let mut dist = Matrix::try_filled(n, f64::INFINITY)?;
+    let mut dist = Matrix::try_filled(tokens.len(), f64::INFINITY)?;
+    set_zero_diagonal(&mut dist);
+    seed_substitution_edges(&mut dist, sub, token_to_id);
+    seed_insertion_edges(&mut dist, ins, token_to_id, epsilon_id);
+    seed_deletion_edges(&mut dist, del, token_to_id, epsilon_id);
+    seed_embedded_edges(tokens, token_to_id, ins, del, &mut dist);
+    floyd_warshall(&mut dist);
+    Ok(dist)
+}
 
-    for index in 0..n {
+fn set_zero_diagonal(dist: &mut Matrix<f64>) {
+    for index in 0..dist.width {
         let node = NodeId::new(index);
         dist.set(node, node, 0.0);
     }
+}
 
+fn seed_substitution_edges(
+    dist: &mut Matrix<f64>,
+    sub: &CostMap<SubstitutionKey>,
+    token_to_id: &HashMap<&str, NodeId>,
+) {
     for ((source, target), &cost) in &sub.costs {
         if let (Some(&s), Some(&t)) = (
             token_to_id.get(source.as_str()),
             token_to_id.get(target.as_str()),
         ) {
-            relax(&mut dist, s, t, cost);
+            relax(dist, s, t, cost);
         }
     }
+}
 
+fn seed_insertion_edges(
+    dist: &mut Matrix<f64>,
+    ins: &CostMap<SingleTokenKey>,
+    token_to_id: &HashMap<&str, NodeId>,
+    epsilon_id: NodeId,
+) {
     for (token, &cost) in &ins.costs {
         if let Some(&id) = token_to_id.get(token.as_str()) {
-            relax(&mut dist, epsilon_id, id, cost);
+            relax(dist, epsilon_id, id, cost);
         }
     }
+}
 
+fn seed_deletion_edges(
+    dist: &mut Matrix<f64>,
+    del: &CostMap<SingleTokenKey>,
+    token_to_id: &HashMap<&str, NodeId>,
+    epsilon_id: NodeId,
+) {
     for (token, &cost) in &del.costs {
         if let Some(&id) = token_to_id.get(token.as_str()) {
-            relax(&mut dist, id, epsilon_id, cost);
+            relax(dist, id, epsilon_id, cost);
         }
     }
-
-    seed_embedded_edges(tokens, token_to_id, ins, del, &mut dist);
-    floyd_warshall(&mut dist);
-    Ok(dist)
 }
 
 #[inline]
