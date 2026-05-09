@@ -56,6 +56,7 @@ Contents
    getting-started
    examples
    end_to_end_example
+   transitive_closure
    cost_learning_model
    api/index
    changelog

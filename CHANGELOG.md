@@ -5,11 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [1.1.0] - Unreleased
+
+### Added
+
+- Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
+- Support for Python 3.14.
+- `__str__` and `__repr__` methods for `WeightedLevenshtein`.
 
 ### Changed
 
-- Small runtime improvements in Rust backend.
+- Cap `default_substitution_cost` at `default_insertion_cost + default_deletion_cost`, since a substitution can always be expressed as a deletion followed by an insertion.
+- Treat empty-sided substitution costs as insertion/deletion aliases.
+- Reject non-finite (NaN, infinite) costs during validation.
+
+### Fixed
+
+- Use the minimum cost for conflicting symmetric substitutions.
 
 ## [1.0.1] - 2025-09-21
 

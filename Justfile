@@ -8,14 +8,19 @@ pytest:
     uv run pytest --cov=python/ocr_stringdist python/tests
 
 test:
-    cargo llvm-cov --features python
-    #cargo test --features python
+    cargo llvm-cov
+    #cargo test
 
 mypy:
     uv run mypy .
 
 lint:
+    cargo clippy
     uv run ruff check . --fix
+
+format:
+    cargo fmt
+    uv run ruff format
 
 doc:
     uv run make -C docs html

@@ -1,6 +1,6 @@
 [package]
 name = "ocr_stringdist"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 description = "String distances considering OCR errors."
 authors = ["Niklas von Moers <niklasvmoers@protonmail.com>"]
@@ -14,8 +14,5 @@ name = "ocr_stringdist"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.24.0", features = ["auto-initialize"] }
+pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 rayon = "1.10.0"
-
-[features]
-python = []
