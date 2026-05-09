@@ -31,4 +31,7 @@ After closure, :meth:`~ocr_stringdist.WeightedLevenshtein.explain` returns a
 single flat operation at the effective cost; the underlying chain is not
 preserved.
 
-You may pass ``prune=True`` to the ``transitive_closure`` method to remove generated substitutions whose costs are already represented by matches, insertions, deletions, or shorter substitutions. This shrinks the resulting cost map but is significantly more expensive to compute.
+You may pass ``prune=True`` to the ``transitive_closure`` method to remove
+generated substitutions whose costs are already represented by matches,
+insertions, deletions, or shorter substitutions. This shrinks the resulting
+cost map but is significantly more expensive to compute.

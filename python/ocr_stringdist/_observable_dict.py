@@ -69,7 +69,7 @@ class _ObservableDict(dict[K, V]):
     def __or__(self, other: object, /) -> Any:
         if not isinstance(other, dict):
             return NotImplemented
-        return _ObservableDict(dict(self) | other, self._on_change, self._validator)
+        return dict(self) | other
 
     def __ior__(self, other: object, /) -> Any:
         self.update(other)

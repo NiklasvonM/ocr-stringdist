@@ -12,12 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add opt-in transitive cost closure via `WeightedLevenshtein.transitive_closure()`.
 - Support for Python 3.14.
 
+### Changed
+
+- Cap `default_substitution_cost` at `default_insertion_cost + default_deletion_cost`, since a substitution can always be expressed as a deletion followed by an insertion.
+- Treat empty-sided substitution costs as insertion/deletion aliases.
+- Reject non-finite (NaN, infinite) costs during validation.
+
 ### Fixed
 
 - Use the minimum cost for conflicting symmetric substitutions.
-- Reject non-finite (NaN, infinite) costs during validation.
-- Cap `default_substitution_cost` at `default_insertion_cost + default_deletion_cost`, since a substitution can always be expressed as a deletion followed by an insertion.
-- Treat empty-sided substitution costs as insertion/deletion aliases.
 
 ## [1.0.1] - 2025-09-21
 

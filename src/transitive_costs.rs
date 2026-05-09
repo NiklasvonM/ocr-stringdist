@@ -149,7 +149,7 @@ pub fn compute_closed_cost_maps(
         .enumerate()
         .map(|(i, token)| (token.as_str(), NodeId::new(i)))
         .collect();
-    let epsilon_id = token_to_id[""];
+    let epsilon_id = *token_to_id.get("").expect("epsilon node must exist");
     let dist = run_closure(&tokens, &token_to_id, epsilon_id, sub, ins, del)?;
 
     let closed_ins = project_single_token(&tokens, &token_to_id, &dist, ins, epsilon_id, true);
