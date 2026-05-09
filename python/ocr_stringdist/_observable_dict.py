@@ -57,7 +57,7 @@ class _ObservableDict(dict[K, V]):
         super().update(items)
         self._on_change()
 
-    def setdefault(self, key: K, default: V) -> V:
+    def setdefault(self, key: K, default: Any = None) -> V:
         if key in self:
             return self[key]
         if self._validator:
@@ -69,7 +69,7 @@ class _ObservableDict(dict[K, V]):
     def __or__(self, other: object, /) -> Any:
         if not isinstance(other, dict):
             return NotImplemented
-        return dict(self) | other
+        return _ObservableDict(dict(self) | other, self._on_change, self._validator)
 
     def __ior__(self, other: object, /) -> Any:
         self.update(other)

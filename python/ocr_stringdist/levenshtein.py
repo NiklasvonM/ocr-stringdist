@@ -43,48 +43,62 @@ class WeightedLevenshtein:
         default_deletion_cost: float = 1.0,
     ) -> None:
         self._symmetric_substitution = symmetric_substitution
-        self._default_substitution_cost = self._validate_cost(
-            "default_substitution_cost", default_substitution_cost
-        )
         self._default_insertion_cost = self._validate_cost(
             "default_insertion_cost", default_insertion_cost
         )
         self._default_deletion_cost = self._validate_cost(
             "default_deletion_cost", default_deletion_cost
         )
+        # A substitution can always be expressed as a deletion + insertion, so
+        # capping here keeps the substitution default from being effectively
+        # ignored when the user supplies a value above the del/ins ceiling.
+        self._default_substitution_cost = min(
+            self._validate_cost("default_substitution_cost", default_substitution_cost),
+            self._default_insertion_cost + self._default_deletion_cost,
+        )
+
+        self._calculator = None
 
         # Initialize Observable Dicts
         sub_init = ocr_distance_map if substitution_costs is None else substitution_costs
         self._substitution_costs = _ObservableDict(
-            sub_init, self._sync_calculator, self._validate_sub_entry
+            sub_init, self._invalidate_calculator, self._validate_sub_entry
         )
         self._insertion_costs = _ObservableDict(
-            insertion_costs or {}, self._sync_calculator, self._validate_unary_entry
+            insertion_costs or {}, self._invalidate_calculator, self._validate_unary_entry
         )
         self._deletion_costs = _ObservableDict(
-            deletion_costs or {}, self._sync_calculator, self._validate_unary_entry
+            deletion_costs or {}, self._invalidate_calculator, self._validate_unary_entry
         )
 
-        self._sync_calculator()
+    def _invalidate_calculator(self) -> None:
+        """Mark the Rust backend as out of sync; it will be rebuilt on next use."""
+        self._calculator = None
 
-    def _sync_calculator(self) -> None:
-        """Internal helper to re-instantiate the Rust backend when state changes."""
-        substitution_costs, insertion_costs, deletion_costs = (
-            self._effective_cost_maps_for_calculator()
-        )
-        self._calculator = RustLevenshteinCalculator(
-            substitution_costs=substitution_costs,
-            insertion_costs=insertion_costs,
-            deletion_costs=deletion_costs,
-            symmetric_substitution=self._symmetric_substitution,
-            default_substitution_cost=self._default_substitution_cost,
-            default_insertion_cost=self._default_insertion_cost,
-            default_deletion_cost=self._default_deletion_cost,
-        )
+    def _get_calculator(self) -> RustLevenshteinCalculator:
+        """Return a Rust backend in sync with the current Python-side state."""
+        if self._calculator is None:
+            substitution_costs, insertion_costs, deletion_costs = (
+                self._effective_cost_maps_for_calculator()
+            )
+            self._calculator = RustLevenshteinCalculator(
+                substitution_costs=substitution_costs,
+                insertion_costs=insertion_costs,
+                deletion_costs=deletion_costs,
+                symmetric_substitution=self._symmetric_substitution,
+                default_substitution_cost=self._default_substitution_cost,
+                default_insertion_cost=self._default_insertion_cost,
+                default_deletion_cost=self._default_deletion_cost,
+            )
+        return self._calculator
 
     def _effective_cost_maps_for_calculator(
         self,
     ) -> tuple[dict[tuple[str, str], float], dict[str, float], dict[str, float]]:
+        """
+        Split substitution entries with empty source/target into the
+        insertion/deletion maps, taking the minimum where they overlap.
+        """
         substitution_costs: dict[tuple[str, str], float] = {}
         insertion_costs = dict(self._insertion_costs)
         deletion_costs = dict(self._deletion_costs)
@@ -112,9 +126,9 @@ class WeightedLevenshtein:
     @substitution_costs.setter
     def substitution_costs(self, value: dict[tuple[str, str], float]) -> None:
         self._substitution_costs = _ObservableDict(
-            value, self._sync_calculator, self._validate_sub_entry
+            value, self._invalidate_calculator, self._validate_sub_entry
         )
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def insertion_costs(self) -> dict[str, float]:
@@ -123,9 +137,9 @@ class WeightedLevenshtein:
     @insertion_costs.setter
     def insertion_costs(self, value: dict[str, float]) -> None:
         self._insertion_costs = _ObservableDict(
-            value, self._sync_calculator, self._validate_unary_entry
+            value, self._invalidate_calculator, self._validate_unary_entry
         )
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def deletion_costs(self) -> dict[str, float]:
@@ -134,9 +148,9 @@ class WeightedLevenshtein:
     @deletion_costs.setter
     def deletion_costs(self, value: dict[str, float]) -> None:
         self._deletion_costs = _ObservableDict(
-            value, self._sync_calculator, self._validate_unary_entry
+            value, self._invalidate_calculator, self._validate_unary_entry
         )
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def symmetric_substitution(self) -> bool:
@@ -145,7 +159,7 @@ class WeightedLevenshtein:
     @symmetric_substitution.setter
     def symmetric_substitution(self, value: bool) -> None:
         self._symmetric_substitution = value
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def default_substitution_cost(self) -> float:
@@ -154,7 +168,7 @@ class WeightedLevenshtein:
     @default_substitution_cost.setter
     def default_substitution_cost(self, value: float) -> None:
         self._default_substitution_cost = self._validate_cost("default_substitution_cost", value)
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def default_insertion_cost(self) -> float:
@@ -163,7 +177,7 @@ class WeightedLevenshtein:
     @default_insertion_cost.setter
     def default_insertion_cost(self, value: float) -> None:
         self._default_insertion_cost = self._validate_cost("default_insertion_cost", value)
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     @property
     def default_deletion_cost(self) -> float:
@@ -172,7 +186,7 @@ class WeightedLevenshtein:
     @default_deletion_cost.setter
     def default_deletion_cost(self, value: float) -> None:
         self._default_deletion_cost = self._validate_cost("default_deletion_cost", value)
-        self._sync_calculator()
+        self._invalidate_calculator()
 
     # --- Validation Helpers ---
 
@@ -242,7 +256,9 @@ class WeightedLevenshtein:
         For repeated use, save via :meth:`to_dict` and reload via
         :meth:`from_dict` so the closure is computed once.
         """
-        sub_dict, ins_dict, del_dict = self._calculator.closed_cost_maps(prune, max_node_length)
+        sub_dict, ins_dict, del_dict = self._get_calculator().closed_cost_maps(
+            prune, max_node_length
+        )
         return WeightedLevenshtein(
             substitution_costs=dict(sub_dict),
             insertion_costs=dict(ins_dict),
@@ -255,7 +271,7 @@ class WeightedLevenshtein:
 
     def distance(self, s1: str, s2: str) -> float:
         """Calculates the weighted Levenshtein distance between two strings."""
-        return self._calculator.distance(s1, s2)  # type: ignore[no-any-return]
+        return self._get_calculator().distance(s1, s2)  # type: ignore[no-any-return]
 
     def explain(self, s1: str, s2: str, filter_matches: bool = True) -> list[EditOperation]:
         """
@@ -266,7 +282,7 @@ class WeightedLevenshtein:
         :param filter_matches: If True, 'match' operations are excluded from the result.
         :return: List of :class:`EditOperation` instances.
         """
-        raw_path = self._calculator.explain(s1, s2)
+        raw_path = self._get_calculator().explain(s1, s2)
         parsed_path = [EditOperation(*op) for op in raw_path]
         if filter_matches:
             return list(filter(lambda op: op.op_type != "match", parsed_path))
@@ -274,7 +290,7 @@ class WeightedLevenshtein:
 
     def batch_distance(self, s: str, candidates: list[str]) -> list[float]:
         """Calculates distances between a string and a list of candidates."""
-        return self._calculator.batch_distance(s, candidates)  # type: ignore[no-any-return]
+        return self._get_calculator().batch_distance(s, candidates)  # type: ignore[no-any-return]
 
     @classmethod
     def learn_from(cls, pairs: Iterable[tuple[str, str]]) -> WeightedLevenshtein:

@@ -55,9 +55,7 @@ impl CostMap<SubstitutionKey> {
         let max_token_length = costs
             .keys()
             .flat_map(|(s, t)| [s.chars().count(), t.chars().count()])
-            .max()
-            .unwrap_or(0)
-            .max(1);
+            .fold(1, std::cmp::max);
 
         CostMap {
             costs,
@@ -109,9 +107,7 @@ impl CostMap<SingleTokenKey> {
         let max_token_length = custom_costs_input
             .keys()
             .map(|token| token.chars().count())
-            .max()
-            .unwrap_or(0)
-            .max(1);
+            .fold(1, std::cmp::max);
         CostMap {
             costs: custom_costs_input,
             default_cost,
