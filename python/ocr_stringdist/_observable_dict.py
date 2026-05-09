@@ -57,7 +57,7 @@ class _ObservableDict(dict[K, V]):
         super().update(items)
         self._on_change()
 
-    def setdefault(self, key: K, default: Any = None) -> V:
+    def setdefault(self, key: K, default: V, /) -> V:
         if key in self:
             return self[key]
         if self._validator:
