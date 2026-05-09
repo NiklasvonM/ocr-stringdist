@@ -195,6 +195,18 @@ fn collect_nodes(
     del: &CostMap<SingleTokenKey>,
     max_node_length: usize,
 ) -> Vec<String> {
+    let mut tokens = gather_seed_tokens(sub, ins, del);
+    expand_with_substrings(&mut tokens, max_node_length);
+    grow_via_single_ops(&mut tokens, &single_op_tokens(ins, del), max_node_length);
+    tokens.into_iter().collect()
+}
+
+/// Initial node set: ε plus every token that appears in any cost map.
+fn gather_seed_tokens(
+    sub: &CostMap<SubstitutionKey>,
+    ins: &CostMap<SingleTokenKey>,
+    del: &CostMap<SingleTokenKey>,
+) -> HashSet<String> {
     let mut tokens: HashSet<String> = HashSet::new();
     tokens.insert(String::new()); // ε
     tokens.extend(ins.costs.keys().cloned());
@@ -203,24 +215,27 @@ fn collect_nodes(
         tokens.insert(s.clone());
         tokens.insert(t.clone());
     }
+    tokens
+}
 
+/// Add every contiguous substring (under the cap) of every current token.
+fn expand_with_substrings(tokens: &mut HashSet<String>, max_node_length: usize) {
     let seeds: Vec<String> = tokens.iter().cloned().collect();
     for token in &seeds {
         for substring in substrings(token, max_node_length) {
             tokens.insert(substring);
         }
     }
+}
 
-    // Configured ins/del tokens are applied in BOTH directions to grow the set:
-    // inserting them produces forward-direction successors, removing them
-    // produces predecessors that lie one configured ins/del edge away. This is
-    // what lets the closure bridge a user-provided source like "ADC" through
-    // intermediate nodes "AC" and "ABC" to a configured target "Z".
-    //
-    // Pre-compute char counts once: the inner loop checks them against the cap
-    // for every source.
-    let single_op_tokens: Vec<(String, usize)> = ins
-        .costs
+/// Configured ins/del tokens, deduplicated, paired with their char count.
+/// The char count is cached so the cap check in [`grow_via_single_ops`]
+/// doesn't recompute it for every source token.
+fn single_op_tokens(
+    ins: &CostMap<SingleTokenKey>,
+    del: &CostMap<SingleTokenKey>,
+) -> Vec<(String, usize)> {
+    ins.costs
         .keys()
         .cloned()
         .chain(del.costs.keys().cloned())
@@ -230,41 +245,63 @@ fn collect_nodes(
             let len = token.chars().count();
             (token, len)
         })
-        .collect();
+        .collect()
+}
 
-    // Worklist-style growth: each round only processes tokens discovered in the
-    // previous round, since older tokens already produced everything they can.
-    // Both gates check the produced length against the cap — insertion can
-    // overrun by lengthening, and deletion can overrun when an oversize raw
-    // seed (longer than `max_node_length`) is shortened to something still
-    // above the cap. The length cap bounds the total set, so the worklist
-    // drains in finitely many rounds.
+/// Grow the node set by applying each configured ins/del token in both
+/// directions: inserting it produces forward-direction successors, removing it
+/// produces predecessors that lie one configured ins/del edge away. This is
+/// what lets the closure bridge a user-provided source like "ADC" through
+/// intermediate nodes "AC" and "ABC" to a configured target "Z".
+///
+/// Worklist-style: each round only processes tokens discovered in the previous
+/// round, since older tokens already produced everything they can. Both gates
+/// check the produced length against the cap — insertion can overrun by
+/// lengthening, and deletion can overrun when an oversize raw seed (longer
+/// than `max_node_length`) is shortened to something still above the cap. The
+/// length cap bounds the total set, so the worklist drains in finitely many
+/// rounds.
+fn grow_via_single_ops(
+    tokens: &mut HashSet<String>,
+    single_ops: &[(String, usize)],
+    max_node_length: usize,
+) {
     let mut frontier: Vec<String> = tokens.iter().cloned().collect();
     while !frontier.is_empty() {
         let mut next_frontier: Vec<String> = Vec::new();
         for source in &frontier {
             let source_len = source.chars().count();
-            for (op_token, op_len) in &single_op_tokens {
+            for (op_token, op_len) in single_ops {
                 if source_len + *op_len <= max_node_length {
-                    for variant in insert_token_variants(source, op_token) {
-                        if tokens.insert(variant.clone()) {
-                            next_frontier.push(variant);
-                        }
-                    }
+                    add_new_variants(
+                        tokens,
+                        &mut next_frontier,
+                        insert_token_variants(source, op_token),
+                    );
                 }
                 if source_len.saturating_sub(*op_len) <= max_node_length {
-                    for variant in delete_token_variants(source, op_token) {
-                        if tokens.insert(variant.clone()) {
-                            next_frontier.push(variant);
-                        }
-                    }
+                    add_new_variants(
+                        tokens,
+                        &mut next_frontier,
+                        delete_token_variants(source, op_token),
+                    );
                 }
             }
         }
         frontier = next_frontier;
     }
+}
 
-    tokens.into_iter().collect()
+fn add_new_variants(
+    tokens: &mut HashSet<String>,
+    frontier: &mut Vec<String>,
+    variants: Vec<String>,
+) {
+    for variant in variants {
+        if tokens.insert(variant.clone()) {
+            frontier.push(variant);
+        }
+    }
 }
 
 fn substrings(token: &str, max_node_length: usize) -> Vec<String> {
