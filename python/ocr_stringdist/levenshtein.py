@@ -75,7 +75,7 @@ class WeightedLevenshtein:
         """Mark the Rust backend as out of sync; it will be rebuilt on next use."""
         self._calculator = None
 
-    def _get_calculator(self) -> RustLevenshteinCalculator:
+    def _get_calculator(self) -> RustLevenshteinCalculator:  # type: ignore[no-any-unimported]
         """Return a Rust backend in sync with the current Python-side state."""
         if self._calculator is None:
             substitution_costs, insertion_costs, deletion_costs = (
